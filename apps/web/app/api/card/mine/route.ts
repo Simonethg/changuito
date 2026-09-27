@@ -48,6 +48,19 @@
  * `POST /api/card/retire` deliberately did *not* move to the cookie. Looking at
  * your card is a session act; destroying it is not.
  *
+ * ## It also mints, on request
+ *
+ * `{ create: true }` on the same body makes the no-card answer into a card,
+ * and it lives here rather than in a route of its own because the caller is
+ * the same caller: every surface that offers "generar mi tarjeta" has just
+ * asked this route whether there is one and been told no. A separate route
+ * would be a second copy of this route's gates, reached only ever one line
+ * after it — and two places that mint are how somebody ends up with two cards.
+ *
+ * Creation is refused unless `keepsOneCard` says this customer keeps one here,
+ * because a card bound to a wallet in a mode that does not keep records is a
+ * row nobody will ever read again.
+ *
  * ## Why POST for a read
  *
  * The plan called this GET. A GET would have to carry the signature and the
@@ -63,9 +76,9 @@
  * They are fetched from Vyrion per request and held nowhere: that is what makes
  * the localStorage mirror safe to be only a hint.
  */
-import { formatUsd } from '@changuito/mcp/pay';
+import { CARD_MIN_CENTS, formatUsd } from '@changuito/mcp/pay';
 
-import { canIssueCard, cardClient } from '../../../../lib/card.ts';
+import { canIssueCard, cardClient, keepsOneCard, mintKeptCard } from '../../../../lib/card.ts';
 import { cardOf, hasDatabase, unbindCard } from '../../../../lib/db.ts';
 import { DEFAULT_NETWORK, type NetworkId } from '../../../../lib/deployments.ts';
 import { requireHuman } from '../../../../lib/human-gate.ts';
@@ -100,7 +113,7 @@ export async function POST(req: Request): Promise<Response> {
   } catch {
     return json({ error: 'body must be JSON' }, 400);
   }
-  const input = (body ?? {}) as { address?: unknown; network?: unknown };
+  const input = (body ?? {}) as { address?: unknown; network?: unknown; create?: unknown };
 
   // See the header: the session wins over the body when there is one, and the
   // shape check here is the one `verifyUserToken` does not do.
@@ -140,12 +153,57 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  const cardId = await cardOf(network, address).catch(() => undefined);
-  // Not an error: most wallets have never been issued one, and saying "no"
-  // plainly is what lets the panel offer to create one.
-  if (!cardId) return json({ card: null }, 200);
-
+  let cardId = await cardOf(network, address).catch(() => undefined);
   const client = cardClient();
+
+  if (!cardId) {
+    // Not an error: most wallets have never been issued one, and saying "no"
+    // plainly is what lets the panel offer to create one.
+    if (input.create !== true) return json({ card: null }, 200);
+    if (!keepsOneCard(network, address)) {
+      return json({ error: 'en modo prueba la tarjeta se crea con cada compra' }, 400);
+    }
+
+    // Asked before `createCard`, because the alternative is a 502 from the
+    // provider that says "insufficient funds" about *our* treasury to somebody
+    // who did nothing wrong. `walletBalance` has been on the client since it
+    // was written and nothing had called it; this is what it was for.
+    //
+    // `settled`, never `pending`: money that has not landed cannot fund a
+    // card, and the client's own comment says as much.
+    try {
+      const { settled } = await client.walletBalance();
+      if (settled < CARD_MIN_CENTS) {
+        console.error('[card/mine] treasury too low to issue:', settled, 'cents');
+        return json({ error: 'no podemos emitir tarjetas nuevas en este momento, probá más tarde' }, 503);
+      }
+    } catch (err) {
+      console.error('[card/mine] could not read the treasury:', err instanceof Error ? err.message : String(err));
+      return json({ error: 'no podemos emitir tarjetas nuevas en este momento, probá más tarde' }, 503);
+    }
+
+    try {
+      // `CARD_MIN_CENTS`, because a card with nothing on it cannot be created:
+      // `assertFundable` throws below a dollar. "Empty, deposits top it up" is
+      // therefore a dollar of treasury float, which `terminateCard` returns
+      // when the card is retired — a float, not a cost, minus whatever the
+      // provider charges to issue.
+      const mint = await mintKeptCard(client, {
+        net: network,
+        owner: address,
+        cents: CARD_MIN_CENTS,
+        metadata: { origin: 'profile' },
+      });
+      if (!mint.ok) return json({ error: 'no pudimos emitir una tarjeta en este momento' }, 502);
+      // Won or lost the race, the id is the customer's card either way; the
+      // loser's card was already handed back inside `mintKeptCard`.
+      cardId = mint.cardId;
+    } catch (err) {
+      console.error('[card/mine] could not issue:', err instanceof Error ? err.message : String(err));
+      return json({ error: 'no pudimos emitir una tarjeta en este momento' }, 502);
+    }
+  }
+
   try {
     const card = await client.getCard(cardId);
     if (card.status === 'terminated') {
