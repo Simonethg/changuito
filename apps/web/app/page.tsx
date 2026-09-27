@@ -4,7 +4,6 @@ import { HistoryToggle } from '../components/HistoryToggle';
 import { FooterSocial } from '../components/FooterSocial';
 import { FounderTrust } from '../components/FounderTrust';
 import { HumanGate } from '../components/HumanGate';
-import { ProfileButton } from '../components/ProfileButton';
 import { NetworkProvider } from '../components/NetworkProvider';
 import { ShopProvider } from '../components/ShopProvider';
 import { WalletProvider } from '../components/WalletProvider';
@@ -32,10 +31,6 @@ export default function Home() {
                       before the way into the chat. Renders nothing at the wide
                       breakpoint, where the rail is already a column. */}
                   <HistoryToggle />
-                  {/* Second, for the same reason: the conversation is what the
-                      page is for, and the account is where you go afterwards.
-                      In the flow rather than fixed — see its header. */}
-                  <ProfileButton />
                   {/* No mark here. The mascot is already in the corner of the
                       cart rail, a few hundred pixels away and at the same size,
                       and two of the same drawing on one screen read as a

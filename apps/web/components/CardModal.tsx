@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import { KEPT_CARD } from '../lib/orders-copy.ts';
 import { useKeptCard } from '../lib/use-kept-card.ts';
@@ -10,13 +10,14 @@ import { CardFace } from './CardFace';
 import { Modal } from './Modal';
 
 /**
- * The card, opened from beside the balance rather than from inside a checkout.
+ * The card: the only place it lives.
  *
- * This is the surface the old "Mis compras" link used to occupy, and the swap
- * is the point of the change: the record of what you bought is a thing you
- * consult, and the card is a thing you *use* — you are standing in the súper's
- * payment form with the numbers on the other screen. That belongs one press
- * from the balance; the record belongs in the profile.
+ * It used to be in two — a summary with the retire button at the top of the
+ * purchases list, and the numbers inside the checkout dialog — and the
+ * purchases list is a record of what was bought, which a card is not. So the
+ * record went to its own dialog and the card came here: read it, make it if
+ * there is none, give it back. One press from the balance, because that is
+ * where somebody standing in the súper's payment form looks for it.
  *
  * ## It reads before it offers to create
  *
@@ -26,12 +27,19 @@ import { Modal } from './Modal';
  * who has one — the server would refuse, `card_owner` is unique per wallet,
  * but they would still have pressed it and watched it fail.
  *
+ * ## Two presses to give it back, and a warning between them
+ *
+ * `retire` is irreversible and returns money, so the button does not do it —
+ * it asks. The warning is the whole warning, before the second press rather
+ * than after it, and it is a plain pair of buttons rather than `confirm()`,
+ * which is a modal dialog the browser owns and Playwright cannot see.
+ *
  * ## The numbers are held here and nowhere else
  *
- * `card.pan` and `card.cvv` come down per request and live in this
- * component's state. Closing the dialog unmounts it and they are gone. They
- * are never written to localStorage, never logged, and `useKeptCard` explains
- * why it does not cache them across mounts either.
+ * `card.pan` and `card.cvv` come down per request and live in this component's
+ * state. Closing the dialog unmounts it and they are gone. They are never
+ * written to localStorage, never logged, and `useKeptCard` explains why it
+ * does not cache them across mounts either.
  */
 export function CardModal({
   address,
@@ -44,7 +52,8 @@ export function CardModal({
   sign: WalletSigner;
   onClose: () => void;
 }) {
-  const { card, frozen, busy, error, load, create } = useKeptCard(address, network, sign);
+  const { card, frozen, busy, error, gone, load, create, retire } = useKeptCard(address, network, sign);
+  const [confirming, setConfirming] = useState(false);
 
   // Once, on open. `load` is stable per address+network, and the hook holds an
   // in-flight ref besides, so a double-invoked effect in development is one
@@ -80,13 +89,45 @@ export function CardModal({
               {KEPT_CARD.frozen}
             </p>
           ) : null}
+
+          {confirming ? (
+            <div className="card-retire-confirm" data-testid="card-modal-confirm">
+              <p className="pay-warn">{KEPT_CARD.retireWarn}</p>
+              <button
+                type="button"
+                className="btn btn-warn"
+                data-testid="card-modal-retire-yes"
+                onClick={() => void retire()}
+                disabled={busy}
+              >
+                {busy ? KEPT_CARD.retiring : KEPT_CARD.retireConfirm}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setConfirming(false)}
+                disabled={busy}
+              >
+                {KEPT_CARD.retireCancel}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              data-testid="card-modal-retire"
+              onClick={() => setConfirming(true)}
+            >
+              {KEPT_CARD.retireCta}
+            </button>
+          )}
         </>
       ) : null}
 
       {card === null ? (
         <>
           <p className="purchases-lead" data-testid="card-modal-none">
-            {KEPT_CARD.none}
+            {gone ? KEPT_CARD.retired : KEPT_CARD.none}
           </p>
           <button
             type="button"

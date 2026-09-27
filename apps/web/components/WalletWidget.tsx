@@ -16,6 +16,7 @@ import { signWalletProof } from '../lib/wallet-proof.ts';
 import { CardModal } from './CardModal';
 import { FaucetConfirm } from './FaucetConfirm';
 import { ModeBadge } from './ModeBadge';
+import { OrdersModal } from './OrdersModal';
 import { useNetwork } from './NetworkProvider';
 import { ReceiveModal } from './ReceiveModal';
 
@@ -83,6 +84,7 @@ function ConnectedWallet() {
 
   const [receiving, setReceiving] = useState(false);
   const [showingCard, setShowingCard] = useState(false);
+  const [showingOrders, setShowingOrders] = useState(false);
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
   const receiveButton = useRef<HTMLButtonElement>(null);
@@ -285,16 +287,23 @@ function ConnectedWallet() {
         >
           <CardIcon />
         </button>
-        {/* No visible label: the name is aria-label, and the 44px box is the target. */}
+        {/* What was bought, which the rail beside the chat is not: that lists
+            the conversations this browser kept, and this lists what was
+            actually paid for, on any device.
+
+            It replaced the refresh button, which is why `useBalances` polls
+            now — see its header. A button whose whole job was "ask again"
+            was asking the shopper to do the polling by hand, and it was
+            occupying the one slot in this row that the record needed. */}
         <button
           type="button"
           className="btn btn-ghost wallet-icon-btn"
-          data-testid="wallet-refresh"
-          onClick={refresh}
-          disabled={loading}
-          aria-label="Actualizar"
+          data-testid="wallet-orders"
+          aria-label="Mis compras"
+          aria-haspopup="dialog"
+          onClick={() => setShowingOrders(true)}
         >
-          <RefreshIcon />
+          <BagIcon />
         </button>
         <button
           type="button"
@@ -314,6 +323,8 @@ function ConnectedWallet() {
       {showingCard && address ? (
         <CardModal address={address} network={network} sign={sign} onClose={() => setShowingCard(false)} />
       ) : null}
+
+      {showingOrders ? <OrdersModal onClose={() => setShowingOrders(false)} /> : null}
 
       {receiving ? (
         <ReceiveModal
@@ -340,24 +351,22 @@ function ConnectedWallet() {
   );
 }
 
-/** Inline, like the two below: one caller each. `icons.tsx` is for the shared ones. */
+/** Inline, like the ones below: one caller each. `icons.tsx` is for the shared ones. */
+function BagIcon() {
+  return (
+    <svg className="wallet-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 8h16l-1.2 11.2a1.5 1.5 0 0 1-1.5 1.3H6.7a1.5 1.5 0 0 1-1.5-1.3Z" />
+      <path d="M8.5 8V6.2a3.5 3.5 0 0 1 7 0V8" />
+    </svg>
+  );
+}
+
 function CardIcon() {
   return (
     <svg className="wallet-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
       <line x1="2.5" y1="10" x2="21.5" y2="10" />
       <line x1="6" y1="15" x2="10" y2="15" />
-    </svg>
-  );
-}
-
-function RefreshIcon() {
-  return (
-    <svg className="wallet-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-      <path d="M16 16h5v5" />
     </svg>
   );
 }

@@ -768,19 +768,14 @@ a:hover { color: var(--chg-arcilla); }
 .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .modal-actions .btn { flex: 1 1 auto; min-width: 128px; text-align: center; }
 
-/* The profile. Two tabs and a list, so it is taller than it is wide and it
-   wants the same 90dvh ceiling `.modal` already sets — the purchases list can
-   run long and scrolling inside the dialog is the right place for it. */
-.modal-profile { max-width: 520px; }
-.profile-tabs { display: flex; gap: 6px; }
-/* A tab is not a submit: it must not stretch the way `.modal-actions .btn`
-   does, and at phone width two of them still have to sit on one row. */
-.profile-tabs .btn { flex: 0 1 auto; }
-.profile-general { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
-.profile-general .ck-fields { width: 100%; }
+/* The record, opened from the balance. Wider than the default, because a
+   purchase line carries two figures and a date and wraps badly at 460px, and
+   it leans on the 90dvh ceiling `.modal` already sets: the list can run long
+   and scrolling inside the dialog is the right place for it. */
+.modal-orders { max-width: 560px; }
 
-/* The card, opened from the balance. Same width as the checkout panel's card
-   step, because it is the same three fields at the same size. */
+/* The card, opened from the balance. Left at the default width, because it is
+   the same three fields the checkout panel shows at the same size. */
 .modal-card { max-width: 460px; }
 
 /* The checkout dialog. Wider than the payment one because it holds a frame,
@@ -1751,38 +1746,15 @@ a:hover { color: var(--chg-arcilla); }
 .purchase-code code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 .purchase-note { margin: 0; font-size: 12px; color: var(--muted); }
 
-/* ---- the card you keep ------------------------------------------------- */
-
-.kept-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.kept-card-face {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 14px;
-  font-size: 15px;
-}
-.kept-card-face code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-}
-.kept-card-brand { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-.kept-card-balance { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* ---- giving the card back ----------------------------------------------
+   The summary this used to dress — four digits and a brand at the top of the
+   purchases list — is gone: the card has its own dialog now and shows the
+   whole face there, through `.ck-fields` like the checkout does. What is left
+   is the part that guards the irreversible press. */
 
 /* The warning sits above the pair of buttons rather than beside them, so it
    is read before either is reachable by the thumb on a phone. */
-.kept-card-confirm {
+.card-retire-confirm {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1791,7 +1763,7 @@ a:hover { color: var(--chg-arcilla); }
   border: 1px solid var(--warn-ink);
   border-radius: var(--radius);
 }
-.kept-card-confirm .pay-warn { flex-basis: 100%; }
+.card-retire-confirm .pay-warn { flex-basis: 100%; }
 
 /* The only destructive control in the app, and the only one that says so in
    colour. Deliberately not a filled button: the safe answer beside it should

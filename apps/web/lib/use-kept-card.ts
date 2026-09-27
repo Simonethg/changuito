@@ -3,6 +3,8 @@
 import { useCallback, useRef, useState } from 'react';
 
 import type { IssuedCard } from '../app/api/card/route.ts';
+import { track } from './analytics';
+import { forgetCard } from './card-store.ts';
 import type { NetworkId } from './deployments.ts';
 import { KEPT_CARD, PURCHASES } from './orders-copy.ts';
 import { signWalletProof, type WalletSigner } from './wallet-proof.ts';
@@ -16,14 +18,22 @@ import { signWalletProof, type WalletSigner } from './wallet-proof.ts';
  * or a retry loop on a 502 is paid for by every other shopper. Having that in
  * one place, with the in-flight guard below, is worth the indirection.
  *
- * ## One caller today, and why the other two are not it
+ * ## One caller, and why the other is not it
  *
- * `CardModal` uses this. `CardPanel` does its own read because it must never
- * open a wallet — it runs inside a checkout, where a signing popup over the
- * súper's frame would be the worst possible moment for one — so it has no
- * signature fallback to share. `Purchases`'s `KeptCard` keeps its own because
- * it shows four digits rather than a PAN and owns the retire flow, and the
- * shapes have nothing in common but the URL.
+ * `CardModal` uses this — it is the card's only home now, so reading, making
+ * and giving back all live here together. `CardPanel` does its own read
+ * because it must never open a wallet: it runs inside a checkout, where a
+ * signing popup over the súper's frame would be the worst possible moment for
+ * one, so it has no signature fallback to share.
+ *
+ * ## Retire is the exception that still signs
+ *
+ * Reading the card takes the session cookie. Destroying it does not, and
+ * `/api/card/retire` was deliberately left on the wallet proof — the card
+ * holds money, the act is irreversible, and thirty days of replayable cookie
+ * is the wrong credential for that. So `retire` below always signs, and it
+ * signs over `retire` rather than `card`, because the message the shopper
+ * approves should say which of the two they are agreeing to.
  *
  * Deliberately **not** memoised across mounts. The obvious next step is a
  * module-level cache keyed by address, and it would hold a PAN and a CVV in
@@ -47,6 +57,10 @@ export interface KeptCard {
   load: () => Promise<void>;
   /** Read, and if there is nothing, make one. */
   create: () => Promise<void>;
+  /** Give it back. Always signs; see the header. */
+  retire: () => Promise<void>;
+  /** True once a retire went through, so the empty state can say which empty it is. */
+  gone: boolean;
 }
 
 export function useKeptCard(
@@ -58,6 +72,7 @@ export function useKeptCard(
   const [frozen, setFrozen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gone, setGone] = useState(false);
   // A ref and not `busy`, because two effects in the same tick both read the
   // old state and both fetch. This is set before the first await.
   const inFlight = useRef(false);
@@ -105,7 +120,45 @@ export function useKeptCard(
 
   const load = useCallback(() => ask(false), [ask]);
   const create = useCallback(() => ask(true), [ask]);
-  return { card, frozen, busy, error, load, create };
+
+  const retire = useCallback(async () => {
+    if (!address || inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const proof = await signWalletProof(sign, 'retire', address);
+      if (!proof) {
+        setError(PURCHASES.signRefused);
+        return;
+      }
+      const res = await fetch('/api/card/retire', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ address, network, proof }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(said(body) ?? KEPT_CARD.retireError);
+        return;
+      }
+      // The localStorage hint is the one thing the server cannot clear, and
+      // leaving it would greet the next basket with "ya tenés una, termina en
+      // 4242" about a card that no longer exists.
+      forgetCard(network);
+      setCard(null);
+      setFrozen(false);
+      setGone(true);
+      track('card_retired', { network });
+    } catch {
+      setError(KEPT_CARD.retireError);
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }, [address, network, sign]);
+  return { card, frozen, busy, error, load, create, retire, gone };
 }
 
 /**

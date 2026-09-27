@@ -25,7 +25,13 @@ export interface PurchasesCopy {
   guestBody: string;
   /** The same words the masthead uses, so the crossing reads the same twice. */
   guestAction: string;
-  /** Before the signature, so nobody is surprised by their wallet opening. */
+  /**
+   * Above the button. It says "puede que" because usually it will not: the
+   * session answers this read, and a signature is the fallback for a cookie
+   * that is missing or thirty days old. It still warns, because the one time
+   * it does happen is the time somebody should not be surprised by their
+   * wallet opening.
+   */
   signLead: string;
   loadCta: string;
   loading: string;
@@ -40,15 +46,16 @@ export interface PurchasesCopy {
 /**
  * The card the shopper keeps, and the one deliberate way to give it back.
  *
- * Its own block because it is its own act. Everything in `PurchasesCopy` is a
- * record of something that already happened; this is the only place on the
- * page where pressing something changes the world, and it is irreversible, so
- * the words that guard it are worth keeping where they can be read together.
+ * Its own block because it is its own dialog. It used to sit at the top of the
+ * purchases list, which was wrong twice over: everything in `PurchasesCopy` is
+ * a record of something that already happened, and this is the only place in
+ * the app where pressing something changes the world irreversibly. The record
+ * and the card are two dialogs now, from two icons, and these are the words of
+ * the second one.
  */
 export interface KeptCardCopy {
   title: string;
   lead: string;
-  showCta: string;
   loading: string;
   /** Not an error: most people have never had one, and the first shop makes it. */
   none: string;
@@ -77,7 +84,7 @@ export const PURCHASES: PurchasesCopy = {
   guestBody:
     'En modo prueba no guardamos nada: probás el pago entero y no queda registro. Entrá con tu cuenta y tus compras quedan acá.',
   guestAction: PREVIEW_MASTHEAD.action,
-  signLead: 'Te pedimos una firma para confirmar que sos vos. Es gratis y no mueve plata.',
+  signLead: 'Si hace mucho que no entrás puede que te pidamos una firma para confirmar que sos vos. Es gratis y no mueve plata.',
   loadCta: 'Ver mis compras',
   loading: 'Buscando tus compras…',
   signRefused: 'No pudimos confirmar que sos vos. Probá de nuevo.',
@@ -90,7 +97,6 @@ export const PURCHASES: PurchasesCopy = {
 export const KEPT_CARD: KeptCardCopy = {
   title: 'Mi tarjeta',
   lead: 'Es una sola y es tuya. Cada compra que hacés le carga el saldo.',
-  showCta: 'Ver mi tarjeta',
   loading: 'Buscando tu tarjeta…',
   none: 'Todavía no tenés una. Podés generarla acá, o se crea sola con tu primera compra.',
   createCta: 'Generar mi tarjeta',
