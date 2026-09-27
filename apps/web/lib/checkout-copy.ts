@@ -70,8 +70,10 @@ export interface CheckoutCopy {
   openTabNote: string;
   paidCta: string;
   checking: string;
-  /** The optional single-use card. Optional in the copy too — the frame already
-   *  takes the shopper's own card, and this must never read as the only way. */
+  /** The optional card we provide — per basket in preview, one per customer in
+   *  production, which is why these three are set per mode rather than shared.
+   *  Optional in the copy too: the frame already takes the shopper's own card,
+   *  and this must never read as the only way. */
   cardTitle: string;
   cardLead: string;
   cardCta: string;
@@ -143,9 +145,6 @@ const COMMON = {
   verified: 'El súper nos confirma que el changuito se cerró.',
   unverified: 'El súper todavía nos muestra el changuito abierto. Si ya pagaste, seguí igual y revisalo en tu cuenta del súper.',
   unreachable: 'No pudimos chequearlo con el súper en este momento.',
-  cardTitle: 'Tarjeta de un solo uso',
-  cardLead: 'Podés pagar con tu tarjeta de siempre en el formulario del súper. O, si preferís no ponerla, te damos una que sirve una sola vez y nada más que para esta compra.',
-  cardCta: 'Generar una tarjeta',
   cardMinting: 'Generando…',
   cardAgainLead: '',
   cardAgainCta: '',
@@ -172,6 +171,12 @@ const PRUEBA: CheckoutCopy = {
   demoPayCta: 'Pagar con nuestra plata',
   demoPayWorking: 'Pagando…',
   demoPayError: 'No pudimos hacer el pago de prueba. Probá de nuevo.',
+  // Per basket here, and it really does close with the window: preview has no
+  // session, so no owner, so `keepsOneCard` is false and the card really is
+  // born for this basket. This is the only mode that may say so.
+  cardTitle: 'Tarjeta de un solo uso',
+  cardLead: 'Podés pagar con tu tarjeta de siempre en el formulario del súper. O, si preferís no ponerla, te damos una que sirve una sola vez y nada más que para esta compra.',
+  cardCta: 'Generar una tarjeta',
   // Per basket here, and it really does close with the window.
   cardNote: 'Copiala en el formulario del súper. No la guardamos en ningún lado: cuando cerrás esta ventana, la tarjeta se cierra con ella.',
   cardFunded: 'Tiene justo el importe de esta compra y no se puede usar para otra cosa.',
@@ -197,6 +202,13 @@ const REAL: CheckoutCopy = {
   // control in it, and pointing at one that is not on screen is worse than
   // saying only the part that is true.
   walletPayShort: 'No te alcanza el saldo para este pago.',
+  // One card per customer, kept and topped up — which is what the code has
+  // done since `keepsOneCard` landed. The old shared wording called it single
+  // use, and a shopper who read it and then saw the same last4 twice would be
+  // right to wonder which of the two the app was lying about.
+  cardTitle: 'Tu tarjeta para el súper',
+  cardLead: 'Podés pagar con tu tarjeta de siempre en el formulario del súper. O, si preferís no ponerla, te damos una tuya que usás en cada compra.',
+  cardCta: 'Generar mi tarjeta',
   cardAgainLead: 'Es la misma de siempre: le sumamos el importe de esta compra y seguís con ella.',
   cardAgainCta: 'Usar mi tarjeta',
   // Not "se cierra con la ventana": this one does not. The numbers still live

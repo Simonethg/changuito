@@ -59,11 +59,15 @@ import { useNetwork } from './NetworkProvider';
  * ## Why the card is optional
  *
  * The frame is the store's real checkout, so a shopper's own card already
- * works and costs us nothing. The single-use card is for the one who would
+ * works and costs us nothing. The card we provide is for the one who would
  * rather not put theirs into a page they reached through a chat. It is offered
- * only where the deployment can actually mint one — `intent.cardAvailable` —
- * and given back when this dialog closes, because a card left alive is money
- * sitting somewhere nobody is watching.
+ * only where the deployment can actually mint one — `intent.cardAvailable`.
+ *
+ * What happens to it afterwards depends on which of the two cards it is. A
+ * preview card is per basket and is given back when this dialog closes,
+ * because a card left alive is money sitting somewhere nobody is watching. A
+ * production card belongs to the customer and is kept — `release()` below is
+ * the one that knows the difference.
  *
  * ## Why preview pays with one button
  *
