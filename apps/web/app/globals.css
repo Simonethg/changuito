@@ -817,22 +817,19 @@ a:hover { color: var(--chg-arcilla); }
 
 .ck-frame {
   width: 100%;
-  /* Short enough that "Ya lo pagué" is on screen with it. A frame that fills
-     the dialog buries the only control that ends the flow, and the shopper
-     coming back from the súper has to hunt for it. */
-  height: min(42dvh, 380px);
+  /* It used to be min(42dvh, 380px), and the reason was sound while the frame
+     had controls under it: a frame that filled the dialog buried "Ya lo pagué",
+     and a shopper coming back from the súper had to hunt for it.
+
+     The controls are above the frame now, so nothing is waiting underneath and
+     that ceiling was costing what it was protecting — 42dvh of a supermarket
+     checkout is roughly one form field and a scrollbar, inside a page the
+     shopper has to actually use. It is the tallest thing here and the last, so
+     it takes the room. */
+  height: min(68dvh, 620px);
   border: 1px solid var(--border);
   border-radius: 12px;
   background: #fff;
-}
-/* And on a phone, where the dialog is the whole screen, the button follows
-   the scroll rather than waiting at the bottom of a page inside a page. */
-.ck-step .modal-actions {
-  position: sticky;
-  bottom: -18px;
-  background: var(--surface);
-  padding: 10px 0 18px;
-  margin-bottom: -18px;
 }
 
 .ck-tab { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

@@ -750,21 +750,6 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
               />
             ) : null}
 
-            {frameSrc ? (
-              <iframe
-                className="ck-frame"
-                data-testid="checkout-frame"
-                src={frameSrc}
-                title={copy.checkoutTitle}
-                // Payment needs scripts, forms and its own cookies; the rest
-                // stays off. `allow-same-origin` is what lets the store keep a
-                // session at all — without it every request is an opaque
-                // origin and checkout cannot work.
-                sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-top-navigation-by-user-activation"
-                referrerPolicy="no-referrer"
-              />
-            ) : null}
-
             <div className={blocked ? 'ck-tab ck-tab-up' : 'ck-tab'}>
               {handoffUrl ? (
                 <a
@@ -817,6 +802,29 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
                 Cerrar
               </button>
             </div>
+
+            {/* Last, and that is the layout decision. Everything a shopper
+                operates — log in, take a card, open a tab, say they paid — is
+                chrome around the store's page, and while it sat *below* the
+                frame the frame had to stay short enough that "Ya lo pagué" was
+                still reachable: 42dvh of a súper's checkout, which is about one
+                form field and a scrollbar. With the controls gathered above it,
+                nothing is waiting underneath and the frame gets the rest of the
+                dialog. See .ck-frame in globals.css. */}
+            {frameSrc ? (
+              <iframe
+                className="ck-frame"
+                data-testid="checkout-frame"
+                src={frameSrc}
+                title={copy.checkoutTitle}
+                // Payment needs scripts, forms and its own cookies; the rest
+                // stays off. `allow-same-origin` is what lets the store keep a
+                // session at all — without it every request is an opaque
+                // origin and checkout cannot work.
+                sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-top-navigation-by-user-activation"
+                referrerPolicy="no-referrer"
+              />
+            ) : null}
           </div>
         )}
       </section>

@@ -363,7 +363,7 @@ the message, which is what used to happen to every message.
 ## Before you commit
 
 ```
-npm test -w @changuito/web      # 107 tests, node:test with --experimental-strip-types
+npm test -w @changuito/web      # 577 tests, node:test with --experimental-strip-types
 npm run typecheck -w @changuito/web
 npm run build
 ```
@@ -386,6 +386,13 @@ Two constraints that bite in this repo specifically:
   *It rejects any syntax that emits code.* A parameter property —
   `constructor(readonly stage: string)` — is a field assignment in disguise, so
   strip-only mode refuses the file with `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`.
-  `ProviderFailure` declares its field and assigns it in the body for exactly
-  this reason. The same goes for `enum` and namespaces. If a test dies at load
-  with that code, this is why.
+  A class that needs a field declares it and assigns it in the body instead.
+  The same goes for `enum` and namespaces. If a test dies at load with that
+  code, this is why.
+
+**Don't modify the tests.** For now they are the fixed point the deployment is
+checked against: a change that only passes because its test moved with it tells
+you nothing once it is live. If a test is genuinely wrong, say so rather than
+editing it — and a test file that has to go because the module under it is gone
+is a deletion, which is a different thing and worth naming out loud.
+  

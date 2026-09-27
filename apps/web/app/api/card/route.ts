@@ -57,16 +57,22 @@
  * ## Why this asks for no signature
  *
  * On a gated network `POST /api/deposit` already made the shopper sign, and
- * this route checks that the memo belongs to the wallet that signed. It does
- * **not** ask for a second signature, and that is a decision rather than an
- * omission: a proof lives five minutes (`WALLET_PROOF_TTL_MS`) and a deposit
- * can take longer than that to confirm, so requiring one here would refuse a
- * shopper who has already sent real money — the worst available moment to
- * fail, and one that ends in a refund done by hand.
+ * this route establishes ownership from what it can see rather than asking
+ * again. It does **not** want a second signature, and that is a decision rather
+ * than an omission: a proof lives five minutes (`WALLET_PROOF_TTL_MS`) and a
+ * deposit can take longer than that to confirm, so requiring one here would
+ * refuse a shopper who has already sent real money — the worst available moment
+ * to fail, and one that ends in a refund done by hand.
  *
- * So the memo stays the credential at this step, which is exactly why
- * `mintMemo` draws from the CSPRNG and why lib/card.ts is careful about what
- * the depositor record does and does not prove.
+ * So the memo is the credential at this step, which is exactly why `mintMemo`
+ * draws from the CSPRNG. Three things have to be true before a card exists, and
+ * none of them is a claim in the request body: the código is unguessable, a
+ * payment carrying it has actually landed at our address on the public ledger,
+ * and the account that sent that payment is allowed on this network.
+ *
+ * The depositor row is *preferred* evidence of who owns the card, not required
+ * evidence — see the long comment at the ownership check for the shopper who
+ * paid and was refused because it went missing.
  */
 import { CARD_MAX_CENTS, CARD_MIN_CENTS, formatUsd } from '@changuito/mcp/pay';
 
@@ -81,7 +87,7 @@ import {
   keepsOneCard,
   refuseFunding,
 } from '../../../lib/card.ts';
-import { bindCard, cardOf, unbindCard } from '../../../lib/db.ts';
+import { bindCard, cardOf, hasDatabase, unbindCard } from '../../../lib/db.ts';
 import { depositAddress, isMemo } from '../../../lib/deposit.ts';
 import { realModeFor, realModeNeedsProof } from '../../../lib/deposit-gate.ts';
 import { DEFAULT_NETWORK, type NetworkId } from '../../../lib/deployments.ts';
@@ -141,33 +147,35 @@ export async function POST(req: Request): Promise<Response> {
   const address = depositAddress(network);
   if (!address) return json({ error: 'los pagos no están habilitados en este entorno' }, 503);
 
-  // The deposit was opened by somebody the gate let in — or this is a memo
-  // nothing recognises. Skipped in mode 'open', where nothing was proven at
-  // deposit time either and there is no play money worth binding.
   const mode = realModeFor(network);
-  let owner: string | undefined;
-  if (realModeNeedsProof(mode)) {
-    owner = await depositorOf(network, memo).catch(() => undefined);
-    if (!owner) {
-      // Either a forged código or a record we lost. Refusing is the recoverable
-      // side of that choice: the shopper can still pay with their own card at
-      // the store, and an importe that was really sent is refunded by hand.
-      console.error(`[card] no depositor recorded for ${network}:${memo}`);
-      return json({ error: 'no pudimos verificar este importe' }, 403);
-    }
-    // Re-read rather than trusted: an allowlist can shrink between the deposit
-    // and the card, and the second question is the one being answered now.
-    if (!networkAccess(owner, network).allowed) {
-      return json({ error: 'Esta cuenta no tiene habilitado el modo real.' }, 403);
-    }
-  }
-
   const client = cardClient();
 
   // Already minted for this código — a refresh, a second tab, a back button.
+  // Nothing below this line runs for that request, including the allowlist
+  // re-read, and that is on purpose: the card exists and the shopper's money is
+  // already on it, so an account that lost real-mode access in the meantime
+  // still needs to be able to read the numbers and spend what it loaded.
+  // Withholding them would strand the balance, not protect anything.
   const already = await heldCard(network, memo).catch(() => undefined);
   if (already) return describe(client, already, 200);
 
+  // ## The ledger is read before the owner is decided, and that ordering is the fix
+  //
+  // This used to ask `depositorOf` first and refuse outright when it came back
+  // empty. A shopper hit that with 12.44 USDC already sent, confirmed on chain,
+  // memo and all: the deposit was real and the *row* naming who opened it was
+  // not there. They got `no pudimos verificar este importe` and a refund by
+  // hand — for a payment the ledger could see perfectly well.
+  //
+  // So the question is asked in the order the evidence exists. The Horizon read
+  // has to happen anyway to know what the card is worth, and the payment it
+  // finds carries `from`: the account that actually moved the money. That is
+  // strictly better proof of ownership than the row, which holds an address a
+  // caller *claimed* and a signature vouched for some minutes earlier.
+  //
+  // Reading the public ledger before the allowlist check spends nothing — the
+  // same argument `/api/balance` makes — and what it buys is that "we lost the
+  // row" stops being indistinguishable from "you did not pay".
   let funding;
   try {
     funding = await fundingFor(network, memo, address);
@@ -178,7 +186,45 @@ export async function POST(req: Request): Promise<Response> {
     console.error('[card] horizon read failed:', message(err));
     return json({ error: 'no pudimos consultar la red en este momento' }, 502);
   }
+  // No payment with this memo has landed. A forged código reaches here too and
+  // gets the same answer, which is the honest one for both: there is nothing to
+  // see yet. The dialog is polling and will ask again.
   if (!funding) return json({ error: 'todavía no vemos el importe de esta compra' }, 409);
+
+  // Skipped in mode 'open', where nothing was proven at deposit time either and
+  // there is no play money worth binding.
+  let owner: string | undefined;
+  if (realModeNeedsProof(mode)) {
+    // The row first, when it is there. It names the wallet that *signed*, and
+    // that is the right binding when the two differ — a shopper whose dollars
+    // sit on an exchange pays from the exchange's account, and a card bound to
+    // that account would be bound to a stranger.
+    const recorded = await depositorOf(network, memo).catch(() => undefined);
+    owner = recorded ?? (funding.from || undefined);
+    if (!owner) {
+      // Both empty: no row, and Horizon named no sender. Nothing is left to
+      // bind a card to, so refuse — but say which of the two is missing,
+      // because `hasDatabase()` answers most of it and the operator reading
+      // this log is the person who can set the variable.
+      console.error(
+        `[card] no owner for ${network}:${memo} — no row (database ${hasDatabase() ? 'configured' : 'NOT configured'}) and no sender on tx ${funding.txHash}`,
+      );
+      return json({ error: 'no pudimos verificar este importe' }, 403);
+    }
+    if (!recorded) {
+      // Worth a line every time. The card goes out, so this is not an incident;
+      // it is the only signal that the deposit row is not being written, and
+      // the *next* thing that breaks for want of it is quieter than this one.
+      console.warn(
+        `[card] ${network}:${memo} had no depositor row (database ${hasDatabase() ? 'configured' : 'NOT configured'}); using the payer off tx ${funding.txHash}`,
+      );
+    }
+    // Re-read rather than trusted: an allowlist can shrink between the deposit
+    // and the card, and the second question is the one being answered now.
+    if (!networkAccess(owner, network).allowed) {
+      return json({ error: 'Esta cuenta no tiene habilitado el modo real.' }, 403);
+    }
+  }
 
   const refusal = refuseFunding(funding.cents);
   if (refusal) {

@@ -28,6 +28,13 @@ export { stroops };
 export interface PaymentRecord {
   type: string;
   to?: string;
+  /**
+   * Who paid. Not matched on — a deposit is identified by its memo, and
+   * demanding a particular sender would strand every shopper whose dollars sit
+   * on an exchange. It is carried because it is the only *evidence* of who paid
+   * that cannot be claimed: see `DepositMatch.from`.
+   */
+  from?: string;
   asset_type?: string;
   asset_code?: string;
   asset_issuer?: string;
@@ -55,6 +62,21 @@ export interface DepositMatch {
   /** What actually arrived, as a decimal string. Not what was asked for. */
   amount: string;
   at: string;
+  /**
+   * The account the payment came from, as the ledger records it.
+   *
+   * Here because a signed-in shopper was refused a card for a deposit that had
+   * genuinely landed: the row naming who opened the memo was missing, and that
+   * row was the only thing `POST /api/card` would accept as proof of ownership.
+   * The ledger had the answer the whole time, one field away from the amount
+   * the route was already reading.
+   *
+   * It is better proof than the row, too. The row holds an address a caller
+   * *claimed* and a signature vouched for minutes earlier; this is the account
+   * that actually moved the money. Empty string when Horizon omits it, which a
+   * caller must treat as "unknown" rather than as an address.
+   */
+  from: string;
 }
 
 /**
@@ -111,7 +133,12 @@ export function matchDeposit(
     const got = stroops(r.amount ?? '');
     if (got === null || got < min) continue;
 
-    return { txHash: r.transaction_hash ?? '', amount: r.amount ?? '0', at: r.created_at ?? '' };
+    return {
+      txHash: r.transaction_hash ?? '',
+      amount: r.amount ?? '0',
+      at: r.created_at ?? '',
+      from: r.from ?? '',
+    };
   }
   return null;
 }

@@ -118,6 +118,12 @@ export function centsFromAmount(amount: string): number | null {
 export interface FundedDeposit {
   txHash: string;
   cents: number;
+  /**
+   * The account that sent it, off the ledger. `POST /api/card` uses this when
+   * the depositor record is missing — the one case that used to refuse a
+   * shopper who had already paid. Empty string means Horizon did not say.
+   */
+  from: string;
 }
 
 /**
@@ -141,7 +147,7 @@ export async function fundingFor(
   if (!hit) return null;
   const cents = centsFromAmount(hit.amount);
   if (cents === null) return null;
-  return { txHash: hit.txHash, cents };
+  return { txHash: hit.txHash, cents, from: hit.from };
 }
 
 /**
