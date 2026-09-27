@@ -12,10 +12,41 @@
  * that never paid, with no deposit in flight to vouch for the request — so if
  * the card id were enough, the card id would be a bearer token for somebody's
  * PAN, sitting in localStorage, for as long as the card lives. It is not
- * enough. This route takes the address and a fresh SEP-53 signature over the
- * `card` intent, and the card id is never an input at all: the server looks up
- * which card the *proven* wallet owns. Guessing an id gets you nothing because
- * there is nowhere to put it.
+ * enough, and it is not an input: the card id never crosses the wire inbound,
+ * and the server looks up which card the authenticated wallet owns. Guessing
+ * an id gets you nothing because there is nowhere to put it.
+ *
+ * ## What authenticates the wallet
+ *
+ * Either of two things, checked in that order.
+ *
+ * **The session.** `chg_user` is an HttpOnly cookie signed with
+ * `CHG_SESSION_SECRET` over an expiry and the address, minted at login by
+ * `ensureUserCookie` out of a SEP-53 signature the customer already gave. It
+ * is the credential behind the profile and the card modal, both of which are
+ * opened casually and often; a wallet popup in front of each one would have
+ * trained people to approve signing prompts without reading them.
+ *
+ * The trade, stated rather than glossed: the proof below lives five minutes,
+ * this cookie lives thirty days, so a stolen one is replayable for thirty
+ * days. Script cannot read it, and a cross-origin POST cannot forge one —
+ * `SameSite=Lax` withholds it, and the `application/json` content type makes
+ * the request non-simple, so it is preflighted and CORS refuses it. What is
+ * left is that **any XSS on this origin can call this route with the browser's
+ * own cookie and read the PAN and CVV below.** That is the MVP position, taken
+ * knowingly; the fix is a short-lived session with a refresh, not a popup.
+ *
+ * The cookie's address is authoritative when it is present — a body naming
+ * somebody else's address does not get an error, it simply is not what gets
+ * read. And it is re-checked against the Stellar address shape here, because
+ * `verifyUserToken` asks only that the address be at least eight characters.
+ *
+ * **The wallet proof.** Unchanged, and the only way in without a session: a
+ * fresh SEP-53 signature over the `card` intent, which a signature for listing
+ * purchases cannot stand in for.
+ *
+ * `POST /api/card/retire` deliberately did *not* move to the cookie. Looking at
+ * your card is a session act; destroying it is not.
  *
  * ## Why POST for a read
  *
@@ -38,6 +69,7 @@ import { canIssueCard, cardClient } from '../../../../lib/card.ts';
 import { cardOf, hasDatabase, unbindCard } from '../../../../lib/db.ts';
 import { DEFAULT_NETWORK, type NetworkId } from '../../../../lib/deployments.ts';
 import { requireHuman } from '../../../../lib/human-gate.ts';
+import { readLoggedInUser } from '../../../../lib/login-gate.ts';
 import { networkAccess } from '../../../../lib/network-access.ts';
 import { proofFromBody, verifyWalletProof } from '../../../../lib/wallet-proof-verify.ts';
 
@@ -70,34 +102,42 @@ export async function POST(req: Request): Promise<Response> {
   }
   const input = (body ?? {}) as { address?: unknown; network?: unknown };
 
-  const address = typeof input.address === 'string' ? input.address.trim().toUpperCase() : '';
+  // See the header: the session wins over the body when there is one, and the
+  // shape check here is the one `verifyUserToken` does not do.
+  const session = await readLoggedInUser(req);
+  const signedIn = session.ok && /^G[A-Z2-7]{55}$/.test(session.address) ? session.address : '';
+
+  const claimed = typeof input.address === 'string' ? input.address.trim().toUpperCase() : '';
+  const address = signedIn || claimed;
   if (!/^G[A-Z2-7]{55}$/.test(address)) return json({ error: 'dirección inválida' }, 400);
   const network = networkFrom(input.network);
 
   // Same gate the deposit route puts in front of a real network, and asked
-  // before the proof is checked, so a wallet that may not use this network
-  // learns that and nothing about whether it has a card here.
+  // before the credential is checked, so a wallet that may not use this
+  // network learns that and nothing about whether it has a card here.
   if (!networkAccess(address, network).allowed) {
     return json({ error: 'Esta cuenta no tiene habilitado el modo real.' }, 403);
   }
 
-  const verdict = verifyWalletProof({
-    intent: 'card',
-    address,
-    proof: proofFromBody(body),
-    now: Date.now(),
-  });
-  if (!verdict.ok) {
-    return json(
-      {
-        error: verdict.error,
-        message:
-          verdict.error === 'proof_expired'
-            ? 'La firma venció. Probá de nuevo.'
-            : 'Necesitamos que firmes con tu cuenta para mostrarte la tarjeta.',
-      },
-      401,
-    );
+  if (!signedIn) {
+    const verdict = verifyWalletProof({
+      intent: 'card',
+      address,
+      proof: proofFromBody(body),
+      now: Date.now(),
+    });
+    if (!verdict.ok) {
+      return json(
+        {
+          error: verdict.error,
+          message:
+            verdict.error === 'proof_expired'
+              ? 'La firma venció. Probá de nuevo.'
+              : 'Necesitamos que firmes con tu cuenta para mostrarte la tarjeta.',
+        },
+        401,
+      );
+    }
   }
 
   const cardId = await cardOf(network, address).catch(() => undefined);

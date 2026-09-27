@@ -32,10 +32,16 @@ import { useNetwork } from './NetworkProvider';
  *
  * ## Nothing loads on its own
  *
- * The read costs a wallet signature, and a signature is a modal in somebody's
- * wallet. Firing that on mount would mean a page that interrupts you for
- * permission before you have said what you came for — so the list is behind a
- * button, and the sentence above it says the signature is coming.
+ * The list is behind a button because the read used to cost a wallet
+ * signature, and firing a wallet modal on mount is interrupting somebody for
+ * permission before they have said what they came for.
+ *
+ * It usually costs nothing now: `POST /api/orders` accepts the `chg_user`
+ * session cookie, which login already minted out of a signature this customer
+ * gave once. So the first attempt carries no proof at all, and only a 401 —
+ * cookie missing, or thirty days expired — falls back to signing. The button
+ * stays for that case, and because a read that happens when you ask for it is
+ * still the better shape.
  *
  * ## Preview is not an empty list
  *
@@ -78,18 +84,27 @@ function WithWallet() {
     setLoading(true);
     setError(null);
     try {
-      // Refusing the wallet prompt is a decision, not a fault, so it gets its
-      // own sentence rather than the generic failure.
-      const proof = await signWalletProof(sign, 'orders', address);
-      if (!proof) {
-        setError(PURCHASES.signRefused);
-        return;
+      const ask = (proof?: unknown) =>
+        fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(proof ? { address, network, proof } : { address, network }),
+        });
+
+      // The session first. The server takes the cookie's address over the
+      // body's, so sending ours is not a claim — it is what answers when there
+      // is no cookie and we fall through to signing below.
+      let res = await ask();
+      if (res.status === 401) {
+        // Refusing the wallet prompt is a decision, not a fault, so it gets
+        // its own sentence rather than the generic failure.
+        const proof = await signWalletProof(sign, 'orders', address);
+        if (!proof) {
+          setError(PURCHASES.signRefused);
+          return;
+        }
+        res = await ask(proof);
       }
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ address, network, proof }),
-      });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         setError(said(body) ?? PURCHASES.error);
