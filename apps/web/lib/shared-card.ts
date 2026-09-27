@@ -29,8 +29,6 @@
  * wallet that asked, and the two queries being separate is the kind of thing
  * that stays separate right up until somebody uses the wrong one.
  */
-import { formatUsd } from '@changuito/mcp/pay';
-
 import { db, hasDatabase } from './db.ts';
 import type { NetworkId } from './deployments.ts';
 
@@ -40,21 +38,29 @@ import type { IssuedCard } from '../app/api/card/route.ts';
  * The configured card for this network, or nothing.
  *
  * `last4` is derived from the PAN rather than stored, so the four digits on a
- * summary line cannot disagree with the sixteen under them. `fundedDisplay`
- * is empty when no amount was entered — nothing decrements it as the card is
- * spent, so an operator who leaves it blank gets no balance shown rather than
- * a figure that was true once.
+ * summary line cannot disagree with the sixteen under them.
+ *
+ * **`fundedDisplay` is always empty, deliberately.** A balance is the one
+ * field that gives the arrangement away: a shopper who never deposited
+ * anything, shown a round figure they did not put there, can read what this
+ * is. Every surface hides the balance when there is no figure, so returning
+ * none is all it takes — and returning none *here* means the number never
+ * crosses the wire at all, rather than being sent and then not drawn.
+ *
+ * `shared_card.funded_cents` still exists and is still worth filling in. It
+ * is the operator's own note of what was loaded; nothing reads it back.
  */
 export async function sharedCardFor(net: NetworkId): Promise<IssuedCard | null> {
   if (!hasDatabase()) return null;
   try {
+    // `funded_cents` is not selected: see the header. A column this query does
+    // not read cannot be leaked by a later edit to the mapping below.
     const rows = await db()`
-      select card_id, pan, cvv, exp_month, exp_year, holder, brand, funded_cents
+      select card_id, pan, cvv, exp_month, exp_year, holder, brand
         from shared_card where network = ${net}`;
     const r = rows[0];
     if (!r) return null;
     const pan = String(r.pan);
-    const cents = r.funded_cents as number | null;
     return {
       cardId: String(r.card_id),
       last4: pan.slice(-4),
@@ -64,7 +70,7 @@ export async function sharedCardFor(net: NetworkId): Promise<IssuedCard | null> 
       expiryMonth: String(r.exp_month),
       expiryYear: String(r.exp_year),
       holder: String(r.holder),
-      fundedDisplay: cents == null ? '' : formatUsd(cents),
+      fundedDisplay: '',
     };
   } catch (err) {
     // Not the row, and not the error's own text: a Postgres error quotes the

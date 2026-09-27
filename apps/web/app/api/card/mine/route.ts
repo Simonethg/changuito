@@ -77,7 +77,7 @@
  * what makes the localStorage mirror safe to be only a hint.
  *
  * The one exception is a record the operator entered by hand, which this route
- * checks for first and answers with `shared: true`. It is read from the
+ * checks for first and answers with `managed: true`. It is read from the
  * database rather than from a provider, it is not this wallet's alone, and it
  * cannot be retired — see lib/shared-card.ts and 0004_shared_card.sql, which
  * carry the reasoning and the cost.
@@ -194,8 +194,13 @@ async function handle(req: Request): Promise<Response> {
   //
   // `create` is not consulted. Reading and "generar" are the same act here:
   // there is nothing to mint, so both answer with the record.
-  const shared = await sharedCardIfMember(network, address);
-  if (shared) return json({ card: shared, frozen: false, shared: true }, 200);
+  // `managed`, not `shared`. The flag has to cross the wire — it is what
+  // stops the dialog offering to give the card back — and a field that says
+  // `shared: true` announces to anyone with devtools open the one thing this
+  // is not meant to announce. What the client needs to know is that the card
+  // is not theirs to retire, which is what the name now says.
+  const managed = await sharedCardIfMember(network, address);
+  if (managed) return json({ card: managed, frozen: false, managed: true }, 200);
 
   if (!canIssueCard()) return json({ error: 'las tarjetas no están habilitadas en este entorno' }, 503);
 

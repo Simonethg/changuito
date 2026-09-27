@@ -256,13 +256,15 @@ export function CardPanel({ memo, network, copy, onIssued }: Props) {
         idPrefix="checkout-card"
       />
       {/* The figure first: it is the fact, and the sentence is the reassurance.
-          A card read back from `/api/card/mine` may carry no figure at all, in
-          which case the reassurance stands on its own rather than following a
-          stray full stop. */}
-      <p className="ck-note">
-        {card.fundedDisplay ? `${card.fundedDisplay}. ` : null}
-        {copy.cardFunded}
-      </p>
+          Both or neither — `cardFunded` reads "ese es el saldo que tiene
+          ahora", which points at the figure and says nothing without it. A
+          card read back from `/api/card/mine` may carry no figure, so the
+          whole line goes rather than leaving a sentence pointing at a gap. */}
+      {card.fundedDisplay ? (
+        <p className="ck-note">
+          {card.fundedDisplay}. {copy.cardFunded}
+        </p>
+      ) : null}
       <p className="ck-note">{copy.cardNote}</p>
 
       <div className="ck-otp" data-testid="checkout-otp">

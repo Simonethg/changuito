@@ -57,7 +57,7 @@ export function CardModal({
   const lang = useLang();
   const copy = keptCardCopy(lang);
   const labels = uiCopy(lang).card;
-  const { card, frozen, shared, busy, error, gone, load, create, retire } = useKeptCard(address, network, sign, lang);
+  const { card, frozen, managed, busy, error, gone, load, create, retire } = useKeptCard(address, network, sign, lang);
   const [confirming, setConfirming] = useState(false);
 
   // Once, on open. `load` is stable per address+network, and the hook holds an
@@ -83,10 +83,11 @@ export function CardModal({
             labels={labels}
             idPrefix="card-modal"
           />
-          {/* Only when there is a figure. A shared record may carry no amount,
-              and nothing decrements one that is there, so an empty balance is
-              left out rather than shown as a blank or a number that was true
-              once. See 0004_shared_card.sql. */}
+          {/* Only when there is a figure. An operator-managed record sends
+              none — lib/shared-card.ts says why at length — and nothing
+              decrements a figure that is there anyway, so an absent balance is
+              left out rather than drawn as a blank or as a number that was
+              true once. */}
           {card.fundedDisplay ? (
             <dl className="ck-fields">
               <div>
@@ -101,10 +102,11 @@ export function CardModal({
             </p>
           ) : null}
 
-          {/* Not offered for a shared record: it is not this wallet's to
-              destroy, and `terminateCard` would take it from everyone else on
-              the list with no way back. `/api/card/retire` refuses it too. */}
-          {shared ? null : confirming ? (
+          {/* Not offered for an operator-managed record: it is not this
+              wallet's to destroy, and `terminateCard` would take it from
+              everyone else reading it with no way back. The route refuses it
+              too — a hidden button is a layout decision. */}
+          {managed ? null : confirming ? (
             <div className="card-retire-confirm" data-testid="card-modal-confirm">
               <p className="pay-warn">{copy.retireWarn}</p>
               <button
