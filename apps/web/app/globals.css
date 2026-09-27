@@ -525,6 +525,15 @@ a:hover { color: var(--chg-arcilla); }
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+/* The one thing in a receipt that is still live. Sized like the reference
+   line above it rather than like a button: the purchase is done, and this is
+   a way back to the store's own page, not a step that is still owed. */
+.receipt-store {
+  display: inline-block;
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+}
 
 /* Where the composer would be, in a chat whose order is already placed.
    Same box as .composer — sticky, same border and padding — so the thread

@@ -38,6 +38,31 @@ export const STOREFRONT_ORIGINS: readonly string[] = Object.values(STOREFRONT_HO
   .sort();
 
 /**
+ * Where the shopper can see the order they just placed.
+ *
+ * The frame dies at the end of a successful checkout and that is not a bug:
+ * VTEX serves `/checkout` with no `x-frame-options` and the order confirmation
+ * page that follows it with `SAMEORIGIN`, so the last thing a shopper sees of
+ * their own purchase is the browser refusing to draw it. Nothing about that is
+ * ours to fix — it is the store's header on the store's page — so the answer is
+ * to stop showing the frame and hand over a link that opens properly.
+ *
+ * **It points at the list, not at the order.** The order id only ever exists in
+ * the URL of that refused page, which is the one place we cannot read; VTEX's
+ * public API will not name an order to an unauthenticated caller either. The
+ * list is one tap further and it is true, which a guessed id would not be — and
+ * the order the shopper just placed is the first one on it.
+ *
+ * `#/my-orders` is a client-side route, so the fragment never reaches the
+ * server and this cannot be checked with a request. It is the path Día's own
+ * account pages use.
+ */
+export function storeOrdersUrl(retailer: string): string | null {
+  const host = STOREFRONT_HOSTS[retailer];
+  return host ? `https://${host}/account#/my-orders` : null;
+}
+
+/**
  * Whether this URL may be put in a frame.
  *
  * Checked at the point of use, not only when the URL is built, because the

@@ -19,6 +19,7 @@ import {
 } from '../lib/login-constants';
 import { pollarEnabled } from '../lib/pollar';
 import { ensureUserCookie } from '../lib/session-login';
+import { storeOrdersUrl } from '../lib/storefront.ts';
 import { progressCopy } from '../lib/turn-progress.ts';
 import { uiCopy } from '../lib/ui-copy.ts';
 import { useChat } from '../lib/use-chat';
@@ -458,6 +459,7 @@ function ChatCore({
 function ReceiptCard({ receipt }: { receipt: Receipt }) {
   const lang = useLang();
   const copy = uiCopy(lang).chat;
+  const ordersUrl = storeOrdersUrl(receipt.retailer);
   return (
     <section className="card receipt" data-testid="receipt" aria-label={copy.receiptAria}>
       <header className="receipt-head">
@@ -481,6 +483,21 @@ function ReceiptCard({ receipt }: { receipt: Receipt }) {
           <strong>{receipt.total}</strong>
         </div>
         <p className="receipt-ref">{copy.paidRef(receipt.paidDisplay, receipt.orderId)}</p>
+        {/* The store's own page, because that is where the delivery is, and
+            because the confirmation page the shopper was on when they paid
+            refuses to be framed — see lib/storefront.ts. The list rather than
+            the order: the id is on the one page we cannot read. */}
+        {ordersUrl ? (
+          <a
+            className="receipt-store"
+            data-testid="receipt-store"
+            href={ordersUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {copy.orderAtStore}
+          </a>
+        ) : null}
       </footer>
     </section>
   );

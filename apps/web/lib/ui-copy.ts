@@ -143,6 +143,8 @@ export interface ChatCopy {
   loginUnconfigured: string;
   receiptAria: string;
   receiptTitle: string;
+  /** Link out of the receipt to the store's own order list. */
+  orderAtStore: string;
   total: string;
   stopAria: string;
   undelivered: string;
@@ -318,6 +320,9 @@ const ES: UiCopy = {
     loginUnconfigured: 'El inicio de sesión no está configurado en este build.',
     receiptAria: 'Tu compra',
     receiptTitle: 'Compra pagada',
+    // "Seguí" rather than "ver": the store's page is where the delivery gets
+    // tracked, and that is the reason to open it.
+    orderAtStore: 'Seguí el pedido en el súper',
     total: 'Total',
     stopAria: 'Parar respuesta',
     undelivered: 'No se envió',
@@ -494,6 +499,7 @@ const EN: UiCopy = {
     loginUnconfigured: 'Signing in is not configured in this build.',
     receiptAria: 'Your purchase',
     receiptTitle: 'Purchase paid',
+    orderAtStore: 'Track the order at the store',
     total: 'Total',
     stopAria: 'Stop the reply',
     undelivered: "It didn't send",

@@ -192,8 +192,11 @@ const DEPOSIT_POLL_MS = 4_000;
 const IDENTIFY_POLL_MS = 5_000;
 /** ~20s before the tab is promoted. Past that the frame is probably blocked. */
 const IDENTIFY_PATIENCE = 4;
-/** Stop asking eventually; the manual button is always there. */
+/** After the first minute, ask less often: the shopper is filling in a form. */
+const WATCH_POLL_MS = 10_000;
+/** 5s for the first minute, then 10s — about ten minutes of watching in all. */
 const IDENTIFY_MAX = 12;
+const WATCH_MAX = IDENTIFY_MAX + 54;
 
 function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, sign, pay }: DialogProps) {
   const { network } = useNetwork();
@@ -257,6 +260,9 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
   // pagehide listener below has to read the latest value without being torn
   // down and rebuilt every time something else in this dialog changes.
   const cardLive = useRef(false);
+  // Settling is now reached from two places — the shopper's button and the
+  // watcher below — and it files a receipt and closes the chat. Once.
+  const done = useRef(false);
   const release = useCallback(() => {
     // Preview only, and the flag is left standing so that reads plainly: in
     // production the card is the customer's, it survives this basket, and
@@ -391,37 +397,6 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
     };
   }, [intent, deposit?.status]);
 
-  // Whether the shopper's session reached the store, asked of the store rather
-  // than of the frame — the one reading that routes around the cross-origin
-  // wall. Only for a real storefront: the fixture has no orderForm to carry a
-  // profile, so there "Ya ingresé" is the whole mechanism.
-  useEffect(() => {
-    if (step !== 'checkout' || rehearsal || identified || !handoffUrl) return;
-    if (polls >= IDENTIFY_MAX) return;
-    let live = true;
-    const id = setTimeout(async () => {
-      try {
-        const res = await fetch('/api/order/verify', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ retailer: cart.retailer, handoffUrl, itemsAtHandoff }),
-        });
-        if (!res.ok || !live) return;
-        const body = (await res.json()) as VerifyResponse;
-        if (!live) return;
-        if (body.identified) setIdentified(true);
-      } catch {
-        /* the manual button covers this */
-      } finally {
-        if (live) setPolls((n) => n + 1);
-      }
-    }, IDENTIFY_POLL_MS);
-    return () => {
-      live = false;
-      clearTimeout(id);
-    };
-  }, [step, rehearsal, identified, polls, handoffUrl, cart.retailer, itemsAtHandoff]);
-
   const payWithDemoWallet = useCallback(async () => {
     if (!intent || demoPaying || demoSent) return;
     setDemoPaying(true);
@@ -500,7 +475,8 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
   }, [intent, pay, walletPaying, walletSent, copy.walletPayError]);
 
   const settle = useCallback(() => {
-    if (!intent) return;
+    if (!intent || done.current) return;
+    done.current = true;
     // Before the receipt, not after: the order is over, and the residual goes
     // back to the wallet the moment the card dies.
     release();
@@ -551,6 +527,79 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
       setVerifying(false);
     }
   }
+
+  // Held in a ref so the watcher below does not tear its timer down and start
+  // it again every time something above this dialog re-renders. `onPaid` is an
+  // inline arrow in Chat, so `settle`'s identity changes on every render of the
+  // page — and a ten-second timeout that restarts that often never fires.
+  const settleRef = useRef(settle);
+  settleRef.current = settle;
+
+  // What the store says about the cart, asked of the store rather than of the
+  // frame — the one reading that routes around the cross-origin wall. Only for
+  // a real storefront: the fixture has no orderForm to carry a profile, so
+  // there "Ya ingresé" is the whole mechanism.
+  //
+  // ## It used to stop at the wrong moment
+  //
+  // This loop ended as soon as the store recognised the shopper, which is
+  // exactly when the interesting question starts. So it keeps going and what it
+  // is waiting for changes instead: first a profile on the cart, then an empty
+  // one. Same endpoint, same request, one loop.
+  //
+  // The reason it matters is the end of a successful checkout. VTEX sends the
+  // order confirmation page with `x-frame-options: SAMEORIGIN` — the checkout
+  // page it follows has no such header, which is why the frame works at all —
+  // so the shopper finishes paying and the frame turns into the browser's
+  // refusal to draw it. It looks like the purchase broke. It did not; the app
+  // simply had no way to know it had finished, and sat there waiting for a
+  // button press in front of a grey box with a sad face in it.
+  //
+  // Now the store is asked, and `looksPaid` closes the dialog and files the
+  // receipt without anybody pressing anything.
+  //
+  // **This settles on the same evidence the button settles on**, which is
+  // circumstantial and is described at length in lib/order-check.ts: a cart
+  // that had items, has none, and carries a profile. A shopper who emptied
+  // their own basket by hand looks identical. That was already true of
+  // `confirmPaid` — the difference is only that nobody asserted it first, and
+  // by this point the importe has already been paid and a card already issued,
+  // so an abandoned basket and a placed order are not equally likely readings.
+  // `release()` is preview-only, so nothing here can destroy a kept card.
+  useEffect(() => {
+    if (step !== 'checkout' || rehearsal || !handoffUrl || done.current) return;
+    if (polls >= WATCH_MAX) return;
+    let live = true;
+    const id = setTimeout(
+      async () => {
+        try {
+          const res = await fetch('/api/order/verify', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ retailer: cart.retailer, handoffUrl, itemsAtHandoff }),
+          });
+          if (!res.ok || !live) return;
+          const body = (await res.json()) as VerifyResponse;
+          if (!live) return;
+          if (body.identified) setIdentified(true);
+          if (body.verified) {
+            setVerdict(body);
+            track('order_verify', { verified: 'true', auto: 'true' });
+            settleRef.current();
+          }
+        } catch {
+          /* the manual button covers this */
+        } finally {
+          if (live) setPolls((n) => n + 1);
+        }
+      },
+      polls < IDENTIFY_MAX ? IDENTIFY_POLL_MS : WATCH_POLL_MS,
+    );
+    return () => {
+      live = false;
+      clearTimeout(id);
+    };
+  }, [step, rehearsal, polls, handoffUrl, cart.retailer, itemsAtHandoff]);
 
   const confirmed = deposit?.status === 'confirmed';
   // Preview *and* a deployment that can actually sign. Both, because the mode
