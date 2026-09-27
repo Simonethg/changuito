@@ -255,9 +255,13 @@ export function CardPanel({ memo, network, copy, onIssued }: Props) {
         }}
         idPrefix="checkout-card"
       />
-      {/* The figure first: it is the fact, and the sentence is the reassurance. */}
+      {/* The figure first: it is the fact, and the sentence is the reassurance.
+          A card read back from `/api/card/mine` may carry no figure at all, in
+          which case the reassurance stands on its own rather than following a
+          stray full stop. */}
       <p className="ck-note">
-        {card.fundedDisplay}. {copy.cardFunded}
+        {card.fundedDisplay ? `${card.fundedDisplay}. ` : null}
+        {copy.cardFunded}
       </p>
       <p className="ck-note">{copy.cardNote}</p>
 

@@ -233,6 +233,76 @@ try {
       paidFor.length === 1 && kept.length === 1 && kept[0].memo === paidFor[0].memo,
       `${paidFor.length} before, ${kept.length} after`);
 
+    // 0004_shared_card.sql. The record is typed in by hand, so the CHECKs are
+    // the only thing standing between a fat-fingered insert and a card face
+    // that renders as noise in front of somebody at a till.
+    //
+    // Cleared first, inside the transaction that always rolls back. By the
+    // time this runs in anger there is a real record in here, and every insert
+    // below would then trip the primary key instead of the CHECK it is meant
+    // to be testing — a unique violation dressed up as a passing shape test.
+    await tx`delete from shared_card_member`;
+    await tx`delete from shared_card`;
+
+    const PAN = '4111111111111111';
+    await refuses(tx, 'a PAN with a letter in it is refused', '23514', (sp) =>
+      sp`insert into shared_card (network, card_id, pan, cvv, exp_month, exp_year, holder, brand)
+         values ('mainnet', 'vy_1', '41111111111111x1', '123', '07', '29', 'A SHOPPER', 'visa')`);
+    await refuses(tx, 'a PAN that is too short is refused', '23514', (sp) =>
+      sp`insert into shared_card (network, card_id, pan, cvv, exp_month, exp_year, holder, brand)
+         values ('mainnet', 'vy_1', '411111', '123', '07', '29', 'A SHOPPER', 'visa')`);
+    await refuses(tx, 'a five-digit CVV is refused', '23514', (sp) =>
+      sp`insert into shared_card (network, card_id, pan, cvv, exp_month, exp_year, holder, brand)
+         values ('mainnet', 'vy_1', ${PAN}, '12345', '07', '29', 'A SHOPPER', 'visa')`);
+    await refuses(tx, 'a thirteenth month is refused', '23514', (sp) =>
+      sp`insert into shared_card (network, card_id, pan, cvv, exp_month, exp_year, holder, brand)
+         values ('mainnet', 'vy_1', ${PAN}, '123', '13', '29', 'A SHOPPER', 'visa')`);
+    await refuses(tx, 'a four-digit expiry year is refused', '23514', (sp) =>
+      sp`insert into shared_card (network, card_id, pan, cvv, exp_month, exp_year, holder, brand)
+         values ('mainnet', 'vy_1', ${PAN}, '123', '07', '2029', 'A SHOPPER', 'visa')`);
+    await refuses(tx, 'a negative loaded amount is refused', '23514', (sp) =>
+      sp`insert into shared_card (network, card_id, pan, cvv, exp_month, exp_year, holder, brand, funded_cents)
+         values ('mainnet', 'vy_1', ${PAN}, '123', '07', '29', 'A SHOPPER', 'visa', -1)`);
+
+    const rec = await tx`insert into shared_card
+        (network, card_id, pan, cvv, exp_month, exp_year, holder, brand, funded_cents)
+        values ('mainnet', 'vy_1', ${PAN}, '123', '07', '29', 'A SHOPPER', 'visa', 5000)
+        returning pan, funded_cents`;
+    check('a well-formed record is stored', rec[0].pan === PAN && rec[0].funded_cents === 5000);
+
+    // The primary key is the singleton. Two mainnet records would mean a route
+    // picking one, and nothing in the schema says which.
+    await refuses(tx, 'a second record for the same network is refused', '23505', (sp) =>
+      sp`insert into shared_card (network, card_id, pan, cvv, exp_month, exp_year, holder, brand)
+         values ('mainnet', 'vy_2', ${PAN}, '456', '01', '30', 'SOMEONE ELSE', 'visa')`);
+    const tnRec = await tx`insert into shared_card
+        (network, card_id, pan, cvv, exp_month, exp_year, holder, brand)
+        values ('testnet', 'vy_t', ${PAN}, '456', '01', '30', 'A SHOPPER', 'visa')
+        returning funded_cents`;
+    check('testnet gets its own record', tnRec.length === 1);
+    check('a record with no loaded amount is allowed', tnRec[0].funded_cents === null);
+
+    // Unlike card_owner this table is meant to be edited — a rotated card, a
+    // top-up — so 0004 gives it the trigger 0003 correctly refused.
+    await tx`update shared_card set updated_at = '2001-01-01T00:00:00Z' where network='mainnet'`;
+    const staleCard = (await tx`select updated_at from shared_card where network='mainnet'`)[0].updated_at;
+    check('shared_card has a working touch trigger', staleCard.getUTCFullYear() !== 2001,
+      staleCard.toISOString());
+
+    // The member list is what decides who is shown the PAN above, so it gets
+    // the same address domain every other table uses rather than free text.
+    await refuses(tx, 'a malformed member address is refused', '23514', (sp) =>
+      sp`insert into shared_card_member (network, address) values ('mainnet', 'not-an-address')`);
+    await tx`insert into shared_card_member (network, address, note) values ('mainnet', ${A}, 'demo')`;
+    await refuses(tx, 'the same member twice is refused', '23505', (sp) =>
+      sp`insert into shared_card_member (network, address) values ('mainnet', ${A})`);
+    check('a member on mainnet is not a member on testnet',
+      (await tx`select 1 from shared_card_member where network='testnet' and address=${A}`).length === 0);
+    check('a wallet that was never added reads as no member',
+      (await tx`select 1 from shared_card_member where network='mainnet' and address=${B}`).length === 0);
+    await tx`delete from shared_card_member where address=${A}`;
+    await tx`delete from shared_card`;
+
     // 0002 changed this from ON DELETE CASCADE. An order is a financial record
     // and a chat is a conversation: expiring a transcript under a retention
     // policy must orphan the order, never erase the evidence money moved.
@@ -261,8 +331,9 @@ console.log(`\n${ok.length} ok, ${bad.length} failed  (${at})`);
 // rather than asserted in a comment.
 const left = await sql`select (select count(*) from card_owner) c,
                               (select count(*) from chat) h,
-                              (select count(*) from orders) o`;
-const { c, h, o } = left[0];
-console.log(`rows left behind: card_owner=${c} chat=${h} orders=${o}`);
+                              (select count(*) from orders) o,
+                              (select count(*) from shared_card_member) m`;
+const { c, h, o, m } = left[0];
+console.log(`rows left behind: card_owner=${c} chat=${h} orders=${o} shared_card_member=${m}`);
 if (bad.length) process.exitCode = 1;
 await sql.end();

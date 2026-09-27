@@ -36,6 +36,10 @@ import { signWalletProof, type WalletSigner } from './wallet-proof.ts';
  * signs over `retire` rather than `card`, because the message the shopper
  * approves should say which of the two they are agreeing to.
  *
+ * A card that comes back `shared` is not the wallet's own and `retire` must
+ * not be offered for it — `CardModal` hides the control, and the route refuses
+ * as well, because hiding a button is a layout decision.
+ *
  * Deliberately **not** memoised across mounts. The obvious next step is a
  * module-level cache keyed by address, and it would hold a PAN and a CVV in
  * page memory for as long as the tab is open rather than for as long as the
@@ -64,6 +68,10 @@ export interface KeptCard {
   /** `undefined` is "not asked yet"; `null` is "asked, and there is none". */
   card: IssuedCard | null | undefined;
   frozen: boolean;
+  /** True when the card came from an operator-entered record rather than from
+   *  the provider. It is not this wallet's alone and cannot be given back, so
+   *  the dialog does not offer to. See app/api/card/mine/route.ts. */
+  shared: boolean;
   busy: boolean;
   error: string | null;
   /** Read what is there. */
@@ -84,6 +92,7 @@ export function useKeptCard(
 ): KeptCard {
   const [card, setCard] = useState<IssuedCard | null | undefined>(undefined);
   const [frozen, setFrozen] = useState(false);
+  const [shared, setShared] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
@@ -127,6 +136,7 @@ export function useKeptCard(
         }
         setCard((body?.card ?? null) as IssuedCard | null);
         setFrozen(body?.frozen === true);
+        setShared(body?.shared === true);
       } catch {
         setError(create ? copy.createError : copy.error);
       } finally {
@@ -168,6 +178,7 @@ export function useKeptCard(
       forgetCard(network);
       setCard(null);
       setFrozen(false);
+      setShared(false);
       setGone(true);
       track('card_retired', { network });
     } catch {
@@ -177,7 +188,7 @@ export function useKeptCard(
       setBusy(false);
     }
   }, [address, network, sign, lang, copy, signRefused]);
-  return { card, frozen, busy, error, load, create, retire, gone };
+  return { card, frozen, shared, busy, error, load, create, retire, gone };
 }
 
 /**

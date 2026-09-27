@@ -97,7 +97,10 @@ export const PURCHASES: PurchasesCopy = {
 
 export const KEPT_CARD: KeptCardCopy = {
   title: 'Mi tarjeta',
-  lead: 'Es una sola y es tuya. Cada compra que hacés le carga el saldo.',
+  // Says what to do with it and claims nothing about whose it is or where
+  // the balance comes from — neither of which holds for every card this
+  // dialog can now show. See app/api/card/mine/route.ts.
+  lead: 'Usá esta tarjeta para pagar en el súper.',
   loading: 'Buscando tu tarjeta…',
   none: 'Todavía no tenés una. Podés generarla acá, o se crea sola con tu primera compra.',
   createCta: 'Generar mi tarjeta',
@@ -226,7 +229,7 @@ const PURCHASES_EN: PurchasesCopy = {
 
 const KEPT_CARD_EN: KeptCardCopy = {
   title: 'My card',
-  lead: "There's one and it's yours. Every purchase you make tops up its balance.",
+  lead: 'Use this card to pay at the store.',
   loading: 'Looking for your card…',
   // Still not an error, and still says the first purchase makes one.
   none: "You don't have one yet. You can create it here, or it appears on its own with your first purchase.",

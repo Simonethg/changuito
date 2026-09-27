@@ -39,6 +39,7 @@ import { cardOf, hasDatabase, unbindCard } from '../../../../lib/db.ts';
 import { DEFAULT_NETWORK, type NetworkId } from '../../../../lib/deployments.ts';
 import { requireHuman } from '../../../../lib/human-gate.ts';
 import { networkAccess } from '../../../../lib/network-access.ts';
+import { isSharedMember } from '../../../../lib/shared-card.ts';
 import { proofFromBody, verifyWalletProof } from '../../../../lib/wallet-proof-verify.ts';
 
 export const runtime = 'nodejs';
@@ -92,6 +93,23 @@ export async function POST(req: Request): Promise<Response> {
       },
       401,
     );
+  }
+
+  // A hand-entered record is not this wallet's to destroy. Everyone on the
+  // member list reads the same card, so one person pressing "dar de baja"
+  // would take it away from all of them and there is no way to put it back —
+  // `terminateCard` is final and the replacement has to be made by hand in the
+  // provider's dashboard.
+  //
+  // The dialog hides the button for these, which is where the shopper meets
+  // this. This is the part that actually enforces it: a hidden button is a
+  // layout decision and anybody can POST.
+  //
+  // Below the proof rather than above it, so the refusals this route already
+  // makes still come in the order they came in, and so nothing about who is on
+  // the list leaks to a caller who has not proved their address.
+  if (await isSharedMember(network, address)) {
+    return json({ error: 'esta tarjeta no se puede dar de baja desde acá' }, 403);
   }
 
   const cardId = await cardOf(network, address).catch(() => undefined);

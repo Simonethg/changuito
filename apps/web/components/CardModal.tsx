@@ -57,7 +57,7 @@ export function CardModal({
   const lang = useLang();
   const copy = keptCardCopy(lang);
   const labels = uiCopy(lang).card;
-  const { card, frozen, busy, error, gone, load, create, retire } = useKeptCard(address, network, sign, lang);
+  const { card, frozen, shared, busy, error, gone, load, create, retire } = useKeptCard(address, network, sign, lang);
   const [confirming, setConfirming] = useState(false);
 
   // Once, on open. `load` is stable per address+network, and the hook holds an
@@ -83,19 +83,28 @@ export function CardModal({
             labels={labels}
             idPrefix="card-modal"
           />
-          <dl className="ck-fields">
-            <div>
-              <dt>{copy.balanceLabel}</dt>
-              <dd data-testid="card-modal-balance">{card.fundedDisplay}</dd>
-            </div>
-          </dl>
+          {/* Only when there is a figure. A shared record may carry no amount,
+              and nothing decrements one that is there, so an empty balance is
+              left out rather than shown as a blank or a number that was true
+              once. See 0004_shared_card.sql. */}
+          {card.fundedDisplay ? (
+            <dl className="ck-fields">
+              <div>
+                <dt>{copy.balanceLabel}</dt>
+                <dd data-testid="card-modal-balance">{card.fundedDisplay}</dd>
+              </div>
+            </dl>
+          ) : null}
           {frozen ? (
             <p className="pay-warn" role="status" data-testid="card-modal-frozen">
               {copy.frozen}
             </p>
           ) : null}
 
-          {confirming ? (
+          {/* Not offered for a shared record: it is not this wallet's to
+              destroy, and `terminateCard` would take it from everyone else on
+              the list with no way back. `/api/card/retire` refuses it too. */}
+          {shared ? null : confirming ? (
             <div className="card-retire-confirm" data-testid="card-modal-confirm">
               <p className="pay-warn">{copy.retireWarn}</p>
               <button

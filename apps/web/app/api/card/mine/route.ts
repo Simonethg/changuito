@@ -73,8 +73,14 @@
  * The PAN and the CVV, because the shopper has to type them into the súper's
  * form and there is no other way for them to arrive — the same payload
  * `POST /api/card` returns, built by the same helper, `no-store`, never logged.
- * They are fetched from Vyrion per request and held nowhere: that is what makes
- * the localStorage mirror safe to be only a hint.
+ * On the Vyrion path they are fetched per request and held nowhere, which is
+ * what makes the localStorage mirror safe to be only a hint.
+ *
+ * The one exception is a record the operator entered by hand, which this route
+ * checks for first and answers with `shared: true`. It is read from the
+ * database rather than from a provider, it is not this wallet's alone, and it
+ * cannot be retired — see lib/shared-card.ts and 0004_shared_card.sql, which
+ * carry the reasoning and the cost.
  */
 import { CARD_MIN_CENTS, formatUsd, type VyrionClient } from '@changuito/mcp/pay';
 
@@ -84,6 +90,7 @@ import { DEFAULT_NETWORK, type NetworkId } from '../../../../lib/deployments.ts'
 import { requireHuman } from '../../../../lib/human-gate.ts';
 import { readLoggedInUser } from '../../../../lib/login-gate.ts';
 import { networkAccess } from '../../../../lib/network-access.ts';
+import { sharedCardIfMember } from '../../../../lib/shared-card.ts';
 import { proofFromBody, verifyWalletProof } from '../../../../lib/wallet-proof-verify.ts';
 
 import type { IssuedCard } from '../route.ts';
@@ -120,8 +127,6 @@ export async function POST(req: Request): Promise<Response> {
 async function handle(req: Request): Promise<Response> {
   const gated = await requireHuman(req);
   if (gated) return gated;
-
-  if (!canIssueCard()) return json({ error: 'las tarjetas no están habilitadas en este entorno' }, 503);
 
   // Without a database there are no persistent cards to read: lib/card.ts's
   // fallback keeps claims in a per-instance Map and deliberately never binds a
@@ -174,6 +179,25 @@ async function handle(req: Request): Promise<Response> {
       );
     }
   }
+
+  // A record the operator entered by hand, for the wallets allowed to read it.
+  //
+  // Last of the gates and not first, which is the point: by here the caller
+  // has a session or a fresh signature, and has cleared `networkAccess`. A PAN
+  // is the most sensitive thing this route can return and it is returned only
+  // to somebody who proved who they are.
+  //
+  // Above `canIssueCard` and `cardClient`, which is the other half of the
+  // point. This path wants nothing from the provider — see lib/shared-card.ts
+  // for why there is a hand-entered record at all — and gating it behind a key
+  // it will not use would 503 the one thing that still works.
+  //
+  // `create` is not consulted. Reading and "generar" are the same act here:
+  // there is nothing to mint, so both answer with the record.
+  const shared = await sharedCardIfMember(network, address);
+  if (shared) return json({ card: shared, frozen: false, shared: true }, 200);
+
+  if (!canIssueCard()) return json({ error: 'las tarjetas no están habilitadas en este entorno' }, 503);
 
   const cardId0 = await cardOf(network, address).catch(() => undefined);
 
