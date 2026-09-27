@@ -76,6 +76,8 @@
  */
 import { CARD_MAX_CENTS, CARD_MIN_CENTS, formatUsd } from '@changuito/mcp/pay';
 
+import { modeKeepsRecords } from '../../../lib/app-mode.ts';
+
 import {
   canIssueCard,
   cardClient,
@@ -240,8 +242,20 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // Which of the two cards this is, and why, is `keepsOneCard`'s doc comment.
+  const keeps = keepsOneCard(network, owner);
+  if (!keeps && modeKeepsRecords(network)) {
+    // On a network that keeps records, the per-basket card is never a design
+    // choice — it is the persistent path unavailable. The shopper still gets a
+    // card and still pays, so nothing here fails; what stops holding is "one
+    // card per customer", silently, and the way anybody finds out is their
+    // *next* basket minting a second one. So it is said now, while the cause is
+    // still on screen, rather than left to be inferred from two cards later.
+    console.warn(
+      `[card] ${network}:${memo} issuing a per-basket card: owner ${owner ? 'known' : 'UNKNOWN'}, database ${hasDatabase() ? 'configured' : 'NOT configured'} — no card_owner binding will be written`,
+    );
+  }
   try {
-    return keepsOneCard(network, owner)
+    return keeps
       ? await fundTheCardTheyKeep(client, { net: network, owner: owner!, memo, funding })
       : await mintOneForThisBasket(client, { net: network, memo, funding });
   } catch (err) {
