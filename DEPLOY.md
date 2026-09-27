@@ -442,251 +442,64 @@ and unchangeable, so a standing balance stays locked to `5411,5499,5311`.
 
 ---
 
-## Part 3 — a local model, with Sonnet as the fallback (optional)
+## Part 3 — the agent's model
 
-Skip this entirely unless you want it. Nothing here is required, and with none
-of it configured the agent runs on `claude-sonnet-5` exactly as before.
+One model answers every hop: `claude-sonnet-5`, from `ANTHROPIC_API_KEY`. That
+is the whole of it, and it is worth a short section only because of what used
+to be here.
 
-What it buys: inference on hardware you already own, with the hosted model
-catching every case where your machine cannot answer. What it does **not** buy
-is capacity — a 16 GB machine runs one model instance, so the honest
-description is "your machine answers when it is free, and Sonnet answers
-otherwise." On a site with visitors, Sonnet will carry most turns. That is the
-design working, not a fault.
+**There was a local model.** Inference ran on a Mac at home over a Cloudflare
+Tunnel, with the hosted model catching whatever the machine could not take —
+four gates deciding per turn, a circuit breaker and a lane lease in Redis, and
+a per-hop fallback so a basket could start on the laptop and finish on Sonnet.
+It worked. It was also *slower* than the thing it was saving, hop after hop,
+and the saving was on an API bill that was never the constraint.
 
-### 3.1 Pick a model that fits
+It is gone, and the way it went wrong on the way out is the reason this
+paragraph exists. `AGENT_PROVIDER=ollama` meant **strict local, never fall
+back** — that was its whole purpose, since `auto` cannot tell you whether the
+machine is really being used. So a deployment that removed `OLLAMA_URL` and
+left `AGENT_PROVIDER` behind asked for a model that could no longer be reached
+and forbade the only fallback: every turn died at the first hop with *"El
+modelo local no está disponible"*. Two variables that had to agree, set in two
+different moments. There is now one, and nothing left to disagree with it.
 
-The binding constraint on an Apple Silicon Mac is not total RAM, it is the
-share macOS hands the GPU — about two thirds of unified memory. On 16 GB that
-is ~10.9 GB, and the model's weights *and* its KV cache have to fit inside it.
+`AGENT_PROVIDER`, `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_HEADERS`,
+`OLLAMA_LANES`, `OLLAMA_FIRST_BYTE_MS` and `OLLAMA_KEEP_ALIVE` are read by
+nothing. Delete them from Vercel; leaving them is harmless but misleading.
 
-| Model | Weights (Q4) | Verdict on 16 GB |
+### 3.1 The two knobs that are left
+
+| | Default | |
 |---|---|---|
-| `qwen3:8b` | ~5.2 GB | **the default.** Leaves room for a 32k context |
-| `qwen3:14b` | ~9.3 GB | better at picking tools, needs KV quantization to fit at all |
-| `qwen3:30b-a3b` | ~19 GB | does not fit. Only ~3B params are *active* per token, but all 19 GB must be **resident** — which experts fire changes token to token |
+| `AGENT_MODEL` | `claude-sonnet-5` | Haiku 4.5 runs — the request switches to a fixed thinking budget, because adaptive thinking and the effort control are Claude 5 features and Haiku rejects them outright — but in the one run measured here it stopped after the product search without building the cart |
+| `AGENT_EFFORT` | `low` | `low` \| `medium` \| `high` |
 
-### 3.2 Set the machine up
+`AGENT_EFFORT` is the speed knob. Adaptive thinking runs before **every** tool
+call and a basket is up to twelve of them, so a second of extra deliberation
+per hop is twelve seconds the shopper spends watching *"Buscando…"*. Each hop
+is a small, well-posed step with the tool schemas in front of it, which is not
+work that rewards deliberation. `medium` restores what shipped before; move
+this first if baskets start coming back wrong rather than slow.
 
-```bash
-ollama pull qwen3:8b
+### 3.2 What the turn actually costs
 
-# Bind to localhost only. The tunnel is the way in; nothing on the LAN or the
-# internet should reach 11434 directly, because Ollama has no authentication.
-launchctl setenv OLLAMA_HOST "127.0.0.1:11434"
+Two cache breakpoints, and they are not decoration — the second one is most of
+the latency on a long basket.
 
-# Keep the model resident between requests. Without this Ollama unloads it
-# after five minutes idle and the next visitor waits out a 5 GB read from disk.
-launchctl setenv OLLAMA_KEEP_ALIVE "-1"
+- **The prefix**: the MCP server's instructions plus `CHANGUITO_PROMPT`, with
+  the tool schemas ahead of the messages. Stable for the whole conversation,
+  which is exactly why per-turn state goes in the *user* message via
+  `stateBanner` and never in the system prompt.
+- **The messages**, marked on the newest one, moving forward each hop. Without
+  it the twelve searches in a basket are re-read twelve times: hop nine pays
+  full price for everything hops one through eight already said. See
+  `cacheable()` in `lib/agent/loop.ts` for the three details that keep it
+  correct — a shallow copy rather than a mutation, user messages only, and a
+  silent no-op below the minimum cacheable length.
 
-# The context window. This one matters more than it looks: the default is 4096,
-# it truncates silently, and the agent sends twelve tool schemas — so the
-# truncation cuts the tool definitions themselves and the model starts
-# inventing tool names. It cannot be set per-request, because Ollama's
-# OpenAI-compatible endpoint ignores `num_ctx`.
-launchctl setenv OLLAMA_CONTEXT_LENGTH "32768"
-
-# Halve the KV cache, so a 32k context costs ~2.4 GB instead of ~4.8 GB.
-launchctl setenv OLLAMA_FLASH_ATTENTION "1"
-launchctl setenv OLLAMA_KV_CACHE_TYPE "q8_0"
-```
-
-`launchctl setenv` is read at launch, so **quit and reopen Ollama.app** after
-setting these. Confirm with `curl -s localhost:11434/api/tags | jq '.models[].name'`.
-
-A closed lid means no inference. `caffeinate -dimsu` in a terminal keeps the
-machine awake and Ctrl-C ends it.
-
-### 3.3 Reach it from the deployment
-
-Two situations, and they need different answers.
-
-**Local dev only — use Tailscale.** Install it on both machines, sign in with
-the same account, and point `OLLAMA_URL` at the `100.x` address from
-`tailscale ip -4`. No token needed: WireGuard has already authenticated the
-device, so there is no public surface at all. This is the easier and safer
-option, and it is the one to use while building.
-
-It does not work from Vercel — a lambda is not on your tailnet.
-
-**From a Vercel deployment — use a Cloudflare Tunnel with Access.**
-
-```bash
-brew install cloudflared
-cloudflared tunnel login
-cloudflared tunnel create changuito-ollama
-cloudflared tunnel route dns changuito-ollama ollama.yourdomain.com
-cloudflared tunnel run --url http://localhost:11434 changuito-ollama
-```
-
-Then, in Cloudflare Zero Trust, put an **Access** application in front of that
-hostname and create a **service token** for it. Cloudflare rejects
-unauthenticated callers at its own edge, so your Mac never sees the scan
-traffic — and port 11434 is never exposed.
-
-Do **not** use `cloudflared tunnel --url http://localhost:11434` on its own.
-It prints a working `trycloudflare.com` URL in one command, which is why it is
-tempting, but that URL is an unauthenticated, unrotatable bearer token to a
-machine in your house. Ollama's API can pull and delete models, so an open
-instance is remote control of that directory, and port 11434 is actively
-scanned. Use it for a five-minute experiment you are watching, never for
-something left running.
-
-### 3.4 Environment variables on Vercel
-
-| Variable | Value |
-|---|---|
-| `AGENT_PROVIDER` | `auto` |
-| `OLLAMA_URL` | `https://ollama.yourdomain.com` |
-| `OLLAMA_MODEL` | `qwen3:8b` |
-| `OLLAMA_HEADERS` | `{"CF-Access-Client-Id":"…","CF-Access-Client-Secret":"…"}` |
-
-None of them take a `NEXT_PUBLIC_` prefix. `OLLAMA_URL` plus `OLLAMA_HEADERS`
-is a credential pair for a machine of yours, and in the client bundle it would
-be a public one.
-
-### 3.5 Confirm which model actually answered
-
-The point of the fallback is that a turn reads the same either way, which also
-means a laptop that quietly stopped being used is invisible. Two ways to see it:
-
-- The SSE `done` event carries a `brain` field — `qwen3:8b`,
-  `claude-sonnet-5`, or `qwen3:8b → claude-sonnet-5` when it switched mid-turn.
-- Set `AGENT_PROVIDER=ollama`, which refuses to fall back and shows the reason
-  instead. Use it to prove the path works, then set it back to `auto`.
-
-The server log names every refusal: `breaker-open`, `busy`, `unreachable`,
-`model-missing`.
-
-### 3.6 What falls back, and when
-
-| Situation | What happens |
-|---|---|
-| Machine asleep, tunnel down, token wrong | probe fails in ≤2s, Sonnet answers |
-| Model not pulled | caught by the probe, Sonnet answers |
-| Three consecutive failures | local model taken out for 60s, so the next visitors pay nothing to rediscover it |
-| Another visitor mid-basket | `busy` — Sonnet answers rather than queueing |
-| Reachable but no first token in 8s | abandoned, Sonnet answers |
-| Local model used 150s of the turn | the rest of the basket finishes on Sonnet |
-| Failure after text is on screen | visible error, no silent retry — half a sentence cannot be unsaid |
-
-The breaker and the lane counter live in Redis when it is configured, so all
-lambdas share one view. Without Redis they are per-process, which is the right
-answer for one developer on one machine and the wrong one on Vercel — the same
-split as conversation history, for the same reason.
-
-## Using it
-
-**Preview** — no account needed, and this is the demo:
-
-1. Open the site signed out. The badge beside the balance says you are in the
-   demo.
-2. Ask for a basket — *"armá un desayuno para dos por menos de $10.000"*.
-3. When the cart card appears, click **Pagá con USDC**, then **Pagar con
-   nuestra plata**. A real payment settles on testnet, carrying the código in
-   its memo.
-4. The deposit goes from waiting to confirmed. **Generar una tarjeta** then
-   mints one for that código — it is given back when the basket closes, which
-   is what the copy under it says.
-
-**Production** — sign in with Google and the app is the other one:
-
-1. **Conectar billetera**. Pollar handles the login, and signing in is what
-   crosses into production ([2.3](#23-preview-and-production)).
-2. Build a basket the same way and press **Pagá con USDC**. The deposit screen
-   now asks for a payment from *your* wallet, in real USDC, to
-   `DEPOSIT_ADDRESS_MAINNET`, and takes one signature before it quotes.
-3. The card that appears is yours and stays yours. A second basket tops the
-   same card up — same last four digits, higher balance — and **/mis-compras**
-   lists the orders and holds the one deliberate way to give the card back.
-
-To prove the "exactly one card" promise rather than trust it, clear
-localStorage between the two baskets. The mirror there is a convenience; the
-binding is in Postgres, and that is what the second deposit must find.
-
-### The escrow walkthrough — dormant
-
-The original flow paid into a Soroban escrow contract and released it with
-**Ya lo completé** / **No se pudo**. **Those contracts are still deployed on
-testnet and nothing in the UI reaches them.** The rail in use is the plain
-deposit above: a payment to a known address with a memo, confirmed off Horizon.
-
-Kept here, and kept configured, because the decision to revive it or retire it
-has not been made. If it is revived, `STELLAR_RESOLVER_SECRET*`,
-`contracts.usdc.id` (the SEP-41 token) and `lib/settle-gate.ts` are where it
-picks back up. The faucet (**Cargar USDC**) belongs to the same rail and is
-likewise unreachable — no mode has a signed-in testnet wallet to press it with.
-
----
-
-## Troubleshooting
-
-**`STELLAR_RESOLVER_SECRET is for G…, but the deployed contracts expect G…`**
-The key and `deployments.json` are from different deployments. Either re-run
-step 1.5 against the current deployment, or `--force` a new one.
-
-**`tx_no_source_account`** Something tried to submit from an address with no
-account on the ledger. On testnet, friendbot it.
-
-**Preview pays in XLM instead of USDC.** `contracts.usdc.issuer` is still
-`null` for testnet, so `depositAssetFor` falls back to native. Run
-[1.6](#16-issue-the-testnet-usdc-preview-pays-with) and regenerate the module.
-
-**`DEMO_WALLET_SECRET is not set`, or a public-key mismatch.** The variable is
-missing, or it holds a key that is not the account pinned as `demoWallet` in
-`deployments.json`. The check is deliberate — it is what stops a mainnet secret
-in that slot from ever signing.
-
-**`prepared statement already exists`, on the second request.** `DATABASE_URL`
-is pointed at the session port (5432) instead of the pooler (6543), or
-`prepare: false` was dropped. See [2.5](#25-the-database).
-
-**A signed-in shopper gets a second card.** The `card_owner` binding was not
-found: check `DATABASE_URL` is set in Vercel and `npm run db:status` shows both
-migrations applied. The routes answer 503 rather than mint a duplicate, so this
-looks like a failure and not like a silent extra card.
-
-**A red message where the balance should be, right after signing in.** Fixed,
-and worth knowing what it was: `/api/balance` asked a Soroban contract for the
-USDC, and mainnet's USDC is a classic Circle asset, so the call was built with
-an empty contract id and failed every time. The number is read off the Horizon
-trustline now. The shopper never sees a server message beside their balance any
-more either — `BALANCE.unavailable` in `lib/mode-copy.ts` is the only string
-that surface can show, and the detail goes to the browser console under
-`[balance]`.
-
-**A chat turn hangs for a minute and then says "No se envió".** That copy means
-the request never delivered a first byte (CLAUDE.md §6), which rules out the
-model: Ollama and Anthropic are both reached well after `/api/chat` has written
-`status: received`. The only I/O before that byte is the rate-limit counters in
-`lib/login-gate.ts`. They are bounded now — a 2.5 s signal per call, one retry,
-and the guest path's round trips batched from seven to two — so a Redis that is
-slow or down answers 503 *"No pudimos verificar tu cupo"* in a few seconds
-instead of sitting there until the gateway gives up. If you see this again,
-check the Upstash status and the KV variables in [2.6](#26-conversation-history-and-quotas)
-before looking at the model.
-
-**Contract ids stopped resolving.** Testnet is wiped periodically. Re-run
-`npm run deploy:testnet -- --force` and commit the new ids.
-
-**The install fails on Vercel.** Check the Node version is 22.x, not 20.
-
-**`Module not found: Can't resolve '@changuito/mcp/server'` in the Vercel build.**
-The MCP package compiles to `dist/`, which is gitignored, so a fresh checkout
-has the sources and none of the output the `exports` map points at. Two things
-build it now and you should not hit this: `prepare` in `packages/mcp` runs on
-`npm install`, and `prebuild` in `apps/web` runs on `npm run build`. The second
-exists because Vercel caches `node_modules` — on a cache hit the install can be
-a no-op, and `dist/` lives in the source tree, not in the cache. If it somehow
-still happens, set the Build Command override to
-`npm run build -w @changuito/mcp && next build`.
-
-**`[PollarClient] constructor() called server-side` in the build log.** Expected
-and harmless — it is a `console.warn`, not a throw. The provider mounts during
-SSR on purpose; making it client-only would trade this warning for a hydration
-mismatch.
-
----
+`AGENT_USAGE=1` logs `cache_read` and `cache_write` per hop to the server
+console, which is how you check the second one is working rather than assuming.
 
 ## Part 4 — www.changuito.me
 

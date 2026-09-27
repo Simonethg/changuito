@@ -192,28 +192,7 @@ them. See **[DEPLOY.md](DEPLOY.md)** for that and for putting it on Vercel.
 | `NEXT_PUBLIC_POLLAR_API_KEY` | browser | login, wallet, signing |
 | `STELLAR_RESOLVER_SECRET` | server | faucet, settle, refund |
 | `FX_ARS_PER_USD` | server | optional — pins the rate for a reproducible demo |
-
----
-
-## Running the agent on your own hardware (optional)
-
-The agent can serve inference from a machine you own, with `claude-sonnet-5`
-catching everything it cannot answer. Set `OLLAMA_URL` and it is on; leave it
-unset and none of that code runs.
-
-What it buys is inference on hardware you already have. What it does **not**
-buy is capacity — a 16 GB machine runs one model instance, so the honest
-description is "your machine answers when it is free, and Sonnet answers
-otherwise". Four gates decide which: a probe that checks the model is actually
-*pulled*, a circuit breaker, a one-at-a-time lane lease so nobody queues behind
-a stranger's groceries, and an 8s first-byte deadline. A turn can start local
-and finish hosted, per hop.
-
-Ollama has no authentication of its own, so it belongs behind Tailscale for
-local dev or a Cloudflare Tunnel with an Access service token for a
-deployment — never a forwarded port. Setup is
-[DEPLOY.md Part 3](DEPLOY.md#part-3--a-local-model-with-sonnet-as-the-fallback-optional);
-the design is [`CLAUDE.md` §5](CLAUDE.md).
+| `AGENT_EFFORT` | server | optional — `low` (default), `medium`, `high`. The speed knob; see `apps/web/.env.example` |
 
 ---
 

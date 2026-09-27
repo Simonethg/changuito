@@ -33,8 +33,8 @@ import type { WalletSigner } from './wallet-proof.ts';
  * a JSON string, so the leftover has to survive to the next chunk.
  *
  * Only one in-flight turn is allowed. A second send is ignored until the user
- * hits Parar (abort) or the stream ends — spam would otherwise pile up on the
- * local model lane and look like "Ollama is broken".
+ * hits Parar (abort) or the stream ends — a second turn racing the first would
+ * interleave two sets of tool results into one transcript.
  */
 export interface UseChatAuth {
   isAuthenticated?: boolean;

@@ -23,7 +23,8 @@ tested without a browser.
 |---|---|---|
 | **`@anthropic-ai/sdk`** | 0.127.0 | written against `messages.stream()` rather than the tool runner, because every tool call here has a visible consequence and owning the loop means owning where those are emitted |
 | **Model** | `claude-sonnet-5` | overridable with `AGENT_MODEL`. Adaptive thinking + the effort control are Claude 5 features; the loop falls back to a fixed thinking budget for Haiku 4.5, which otherwise rejects the request outright |
-| **Local model** | optional | any OpenAI-compatible endpoint — Ollama, LM Studio, vLLM, llama.cpp. Off unless `OLLAMA_URL` is set. No SDK: `fetch` plus a tested translation layer, because the app would be taking on a dependency for one POST |
+| **Effort** | `low` | overridable with `AGENT_EFFORT`. Thinking runs before every tool call and a basket is up to twelve of them, so this is a latency setting more than a quality one |
+| **Prompt caching** | two breakpoints | the system + tools prefix, and a moving one on the newest message. The second is what stops hop nine re-reading hops one through eight at full price |
 | **`@modelcontextprotocol/sdk`** | 1.30.0 | both the `Client` and the `McpServer`, linked with `InMemoryTransport` |
 | **`@upstash/redis`** | ^1.39.0 | conversation history. HTTP, not TCP — one connection per lambda is the connection-limit problem the REST API avoids |
 
@@ -122,7 +123,7 @@ existing KV stores to Upstash in December 2024.
 ```
 npm test                          # both suites
 npm test -w @changuito/mcp        # 520 — adapters, money, FX, cart maths
-npm test -w @changuito/web        # 107 — chat-state, order, turn-store, wire, gate, ollama, …
+npm test -w @changuito/web        # chat-state, order, turn-store, checkout-copy, …
 npm run contracts:test            #  19 — the escrow
 npm run typecheck -w @changuito/web
 npm run build
@@ -147,9 +148,7 @@ erases types rather than compiling them. Two sharp edges follow:
 | `STELLAR_RESOLVER_SECRET` | for faucet + settle | the one server signing key |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | no | conversation history across restarts; falls back to an in-process Map |
 | `FX_ARS_PER_USD` | no | pin the rate so a demo quotes the same number every time |
-| `AGENT_MODEL`, `AGENT_USAGE` | no | model override; per-hop token logging |
-| `AGENT_PROVIDER` | no | `auto` \| `ollama` \| `anthropic`. Defaults to `auto` when `OLLAMA_URL` is set, `anthropic` otherwise |
-| `OLLAMA_URL`, `OLLAMA_MODEL` | no | a local model. Server-side only — never `NEXT_PUBLIC_` |
-| `OLLAMA_HEADERS`, `OLLAMA_LANES` | no | tunnel auth headers as JSON; concurrent local turns (default 1) |
+| `AGENT_MODEL`, `AGENT_USAGE` | no | model override; per-hop token logging, including cache reads and writes |
+| `AGENT_EFFORT` | no | `low` (default) \| `medium` \| `high`. The speed knob |
 
 Setup in [`../DEPLOY.md`](../DEPLOY.md); annotated in `apps/web/.env.example`.

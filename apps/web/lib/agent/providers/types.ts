@@ -35,28 +35,14 @@ export interface HopResult {
 }
 
 export interface Provider {
-  readonly kind: 'anthropic' | 'ollama';
+  /**
+   * One value, for now. It was a union — the loop branched on it to decide
+   * whether a failure was routine (a laptop at home) or the end of the turn
+   * (the hosted model). There is only the hosted model now, so every failure is
+   * the end of the turn and nothing reads this but the log line.
+   */
+  readonly kind: 'anthropic';
   /** The model name, for the log line and the dev banner. */
   readonly label: string;
   hop(req: HopRequest, cb: HopCallbacks): Promise<HopResult>;
-}
-
-/**
- * A provider that did not produce a reply.
- *
- * Distinct from any other error because the loop treats it as routine: a local
- * model behind a tunnel to someone's laptop is expected to fail sometimes, and
- * the answer is the other provider rather than an apology to the user.
- */
-export class ProviderFailure extends Error {
-  // Declared and assigned rather than a `readonly stage` parameter property:
-  // those emit an assignment instead of erasing, so `--experimental-strip-types`
-  // rejects them outright — and this file has to be loadable by the tests.
-  readonly stage: 'request' | 'first-byte' | 'stream';
-
-  constructor(message: string, stage: 'request' | 'first-byte' | 'stream') {
-    super(message);
-    this.name = 'ProviderFailure';
-    this.stage = stage;
-  }
 }

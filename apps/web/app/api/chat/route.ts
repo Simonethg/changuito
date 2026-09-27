@@ -65,16 +65,17 @@ export async function POST(req: Request): Promise<Response> {
   const owner = user.ok ? user.address : null;
   const network = asNetwork(body.network) ?? DEFAULT_NETWORK;
 
-  const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
-  const hasOllama = Boolean(process.env.OLLAMA_URL?.trim());
-  const provider = (process.env.AGENT_PROVIDER ?? '').trim().toLowerCase();
-  const ollamaOk = hasOllama && (provider === 'ollama' || provider === 'auto' || provider === '');
-  if (!hasAnthropic && !ollamaOk) {
+  // One key, checked here so a misconfigured deployment says so up front
+  // rather than opening a stream and dying on the first hop.
+  //
+  // This used to accept either a key or a local model, and the shape of that
+  // check is why chat broke: a deployment could satisfy it with AGENT_PROVIDER
+  // and OLLAMA_URL, and when the URL was removed while the provider name
+  // stayed, the route still opened a stream that the loop then refused to run.
+  // A single condition cannot disagree with itself that way.
+  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
     return Response.json(
-      {
-        error:
-          'Falta un modelo: seteá ANTHROPIC_API_KEY, o OLLAMA_URL con AGENT_PROVIDER=ollama en .env.local. Ver DEPLOY.md.',
-      },
+      { error: 'Falta ANTHROPIC_API_KEY. Ver DEPLOY.md.' },
       { status: 500 },
     );
   }

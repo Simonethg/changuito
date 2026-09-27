@@ -9,16 +9,12 @@ Everything the agent is lives under `apps/web/lib/agent`:
 
 | File | Holds |
 |---|---|
-| `loop.ts` | the tool loop: hops, what reaches the UI, which model answers each hop |
+| `loop.ts` | the tool loop: hops, what reaches the UI, and where the cache breakpoint goes |
 | `prompt.ts` | the system prompt, and the per-turn state banner |
 | `render-tools.ts` | the tools that draw, and the cache they draw from |
 | `turn-store.ts` | where the conversation lives between requests |
-| `provider.ts` | which model answers this turn, and what it falls back to |
 | `providers/types.ts` | the one interface a model has to satisfy |
-| `providers/anthropic.ts` | the hosted model — lifted out of `loop.ts` unchanged |
-| `providers/ollama.ts` | a local model over an OpenAI-compatible endpoint |
-| `providers/wire.ts` | Anthropic ↔ OpenAI message translation. Pure, and tested |
-| `providers/gate.ts` | is the local model up, healthy and free — breaker and lanes |
+| `providers/anthropic.ts` | the model, and the two knobs that decide what a turn costs |
 
 `apps/web/CLAUDE.md` is not this file's sibling in spirit — it is a one-line
 pointer to `AGENTS.md`, which `next dev` writes and re-adds on every run. Leave
@@ -202,76 +198,88 @@ bought and usually carries their postal code, so moving it from an hour in a
 cache to durable storage is a real change in exposure. Reads are narrowed the
 same way, in the `WHERE` clause — a chat id is a UUID, not a capability.
 
-### 5. The model is chosen per hop, not per turn
+### 5. There was a local model, and taking it out is the fix
 
-*Today. The requirement: serve inference from a Mac at home, and never let a
-visitor notice when it is asleep.*
+*It ran on a Mac at home over a Cloudflare Tunnel, per hop, with the hosted
+model catching whatever the machine could not take. It is gone. What follows is
+the part worth keeping in mind, because the shape of it caused an outage.*
 
-`loop.ts` used to hold `new Anthropic()` and a model name. It now takes a
-`Provider` — one method, `hop()`, taking Anthropic-shaped messages and
-streaming deltas back. `providers/anthropic.ts` is the old code lifted out
-without a change, so the path carrying real traffic is provably the same one.
+`loop.ts` used to hold `new Anthropic()` and a model name, then it held a
+choice: `selectBrains()` picked between a local provider and the hosted one,
+per hop, behind four gates — a `/api/tags` probe, a Redis circuit breaker, a
+Redis lane lease, and a first-byte deadline. `providers/wire.ts` translated
+Anthropic's message shape out to OpenAI's and back, purely, so a turn could
+start on the laptop and finish on Sonnet without `turn.messages` ever leaving
+Anthropic's shape.
 
-**The load-bearing decision is that `turn.messages` stays Anthropic-shaped
-whoever answered.** `providers/wire.ts` translates outward to OpenAI's format
-on the way to a local model and back to content blocks on the way in; nothing
-in the OpenAI shape is ever stored. That is what makes a turn able to start on
-a laptop and finish on Sonnet, which is the case that actually matters — a
-basket takes up to twelve hops and a local model will not always survive all
-of them. It also means `turn-store.ts`'s `v: 1` codec needed no version bump.
+It was good machinery and it was solving the wrong problem. The local model was
+**slower** than the thing it was standing in for, hop after hop, and what it
+saved was an API bill that was never the constraint. So: `provider.ts`,
+`providers/ollama.ts`, `providers/wire.ts` and `providers/gate.ts` are deleted,
+along with their tests, and `loop.ts` calls `anthropicProvider()` directly.
 
-Translation is where a seam like this goes wrong, so it is pure and has its own
-tests. The two formats disagree about tool results in a way that is easy to get
-subtly wrong: Anthropic puts every result for a hop in **one** user message
-keyed by `tool_use_id`, OpenAI wants **one message per result**, `role: 'tool'`,
-keyed by `tool_call_id`, immediately after the assistant message that asked.
-An unmatched id is rejected on the *next* request — a turn later, on a turn
-that did nothing wrong, which is the same delayed-blame shape as the history
-bug in §4.
+**How it broke, which is the part to remember.** `AGENT_PROVIDER=ollama` meant
+*strict local, never fall back*. That was deliberate and it was the only way to
+answer "is the machine really being used?", because `auto` succeeds either way
+by design. But it made two variables that had to agree — the provider name and
+the URL — and they were set in different moments, so removing `OLLAMA_URL` from
+Vercel while the provider name stayed behind asked for a model that could not
+be reached and forbade the only fallback. Every turn died at the first hop, in
+Spanish, saying the local model was unavailable. A working deployment turned
+off by deleting a variable that was no longer used.
 
-**The fallback is per hop, and the rule is first-byte.** What cannot be retried
-is a *hop's* partial text, because that is the text that would be said twice;
-everything before it is already committed to `turn.messages` and reads the same
-whoever wrote it. So a local model that fails before emitting text is replaced
-silently and the hop is re-run. After text is on screen, the user gets a
-visible error instead — half a sentence cannot be unsaid. Thinking deltas
-deliberately do not count: they are transient, and letting them block the
-fallback would forfeit the common case, where a local model reasons for a while
-and then dies.
+The general lesson is not "strict modes are bad" — it is that a strict mode
+keyed off a *second* variable can outlive the thing it is strict about. If you
+add a mode like it, derive it from the resource, not from a name for the
+resource.
 
-Four gates decide whether the local model is used at all, and they are four
-because they catch four different failures:
+**The `Provider` interface stays**, with `kind` narrowed to one value. It costs
+one indirection and it is where the model, the thinking budget and the effort
+level live, which is worth having in a file that is not the loop.
 
-| Gate | Catches | Cost when it fires |
-|---|---|---|
-| probe of `/api/tags` | asleep, tunnel down, token wrong, model not pulled | ≤2s, shared for 30s |
-| circuit breaker | a machine that keeps failing | nothing after the third failure |
-| lane lease | another visitor mid-basket | nothing — `busy` is instant |
-| first-byte deadline | reachable, but paging 5GB off a full SSD | 8s |
+**Two things survived the removal and should not be undone:**
 
-**The breaker and the lanes live in Redis, not module scope**, for exactly the
-reason in §4: per-instance state means every cold lambda rediscovers the laptop
-is asleep by paying the full timeout, and the visitor pays it too. One shared
-breaker means the first request absorbs that and the rest are told
-immediately.
+- **`status: 'fallback'` is still in the protocol** and `turn-progress.ts`
+  still has copy for it. Nothing emits it. Removing a variant from the wire
+  protocol means a browser holding an old bundle meets a server that no longer
+  speaks its language, and the stage costs one unreachable branch.
+- **`errorCode()` in `lib/analytics.ts` still maps the two local-model
+  sentences** to `local_model`. Nothing produces them either. It is a
+  classifier over strings that may still be sitting in an analytics backlog,
+  and a row that classifies nothing is cheaper than a row that is missing.
 
-Two things worth knowing before changing any of it:
+### 5b. What a turn costs, and the breakpoint that moves
 
-- **The default is one lane.** A 16GB machine runs one model instance, so
-  raising it buys a queue rather than parallelism — and a queued visitor waits
-  behind a stranger's groceries when the hosted model would have answered them
-  in a second. Overflowing to the *faster* model is a comfortable kind of
-  degradation. Do not "fix" this by adding a queue.
-- **`num_ctx` cannot be set per request.** Ollama's OpenAI-compatible endpoint
-  ignores it, the server default is 4096, and it truncates silently. With
-  twelve tool schemas that cuts the tool definitions themselves and the model
-  starts inventing tool names. It has to be `OLLAMA_CONTEXT_LENGTH` on the
-  server — see DEPLOY.md Part 3. An empty reply from a local model is treated
-  as a failure partly because this is its usual cause.
+*The speed work that came with the removal.*
 
-`AGENT_PROVIDER=ollama` refuses to fall back and shows the reason. It exists
-because `auto` cannot answer "is the machine actually being used?" — `auto`
-succeeds either way, which is the whole point of it.
+The system block carried `cache_control` and the messages did not. That is
+fine for one hop and wrong for twelve: a basket appends an assistant turn and a
+block of tool results per hop, and search results are the largest thing in the
+request by hop three. Hop nine was paying full price — and full latency — for
+everything hops one through eight had already said.
+
+`cacheable()` in `loop.ts` marks the last content block of the last message,
+and the mark moves forward each hop, so each hop's prefix is the block the
+previous hop just wrote. Three details hold it up:
+
+- **A shallow copy, never a mutation of `turn.messages`.** Two reasons, and
+  both bite. The stored transcript stays free of request-shaping detail that
+  `turn-store.ts`'s codec would otherwise have to carry (§4). And a mutation
+  leaves last hop's breakpoint in place as well as this one's — four per
+  request is the API's ceiling, and a twelve-hop turn would sail past it.
+- **User messages only.** Before a hop the last message is the shopper's text
+  or a block of tool results, both of which take `cache_control`. The exception
+  is `pause_turn`, which loops with an assistant message last, and a thinking
+  block cannot be marked.
+- **Under the minimum cacheable length it is a silent no-op**, not an error.
+
+The other knob is `AGENT_EFFORT`, defaulting to `low` where it used to be
+`medium`. Adaptive thinking runs before *every* tool call, so a second of extra
+deliberation per hop is twelve seconds of "Buscando…"; each hop is a small,
+well-posed step with the tool schemas in front of it. It is env-overridable
+because that is a claim worth being able to test rather than argue about.
+`AGENT_USAGE=1` prints `cache_read` and `cache_write` per hop, which is how you
+check any of this rather than assuming it.
 
 ### 6. The wait says what it is waiting for
 
@@ -293,8 +301,9 @@ Now there is a `status` event, and it never creates a block:
   — history is still only written on a clean return — but the copy is true.
 - **`thinking`** at the top of every hop, with its index. Hop 0 is reading
   the user; later hops are reading tool results.
-- **`fallback`** when the local model failed before any text and the hop is
-  being re-run on the hosted one.
+- **`fallback`** is in the protocol and emitted by nothing, since §5. Left
+  there deliberately: an old bundle meeting a new server is the reason wire
+  protocols shrink slowly.
 
 `lib/turn-progress.ts` turns that, plus pending tools and the clock, into the
 line under the composer. **Nothing in it is estimated.** Every stage is
@@ -302,10 +311,6 @@ something that happened, and the reassurance copy keys off elapsed time,
 which is also something that happened. Do not add a progress bar: the server
 does not know how many hops a basket will take, so a bar would be a promise
 it cannot keep.
-
-Local reasoning deltas are still not forwarded. Ollama sends them as
-`delta.reasoning`, which `wire.ts` ignores on purpose: it is long, raw and
-English, and the `thinking` stage already says the model is working.
 
 The failure detail (`El servidor respondió 504.`, `Se cortó la conexión…`)
 is now printed under an undelivered bubble. It used to be discarded, which is
@@ -336,16 +341,14 @@ the message, which is what used to happen to every message.
 
 - **`MAX_HOPS = 12`.** A basket takes a handful of searches. Past this the model
   is stuck, not working, and the user gets a plain message saying so.
-- **`claude-sonnet-5`** is both the default and the fallback, overridable with
-  `AGENT_MODEL`. It stays the default even where a local model is configured,
-  because a Vercel lambda has no Ollama and the deployment has to work without
-  one. Haiku 4.5 runs — the loop switches to a fixed thinking budget for it,
+- **`claude-sonnet-5`** is the model, overridable with `AGENT_MODEL`.
+  Haiku 4.5 runs — the loop switches to a fixed thinking budget for it,
   because adaptive thinking and the effort control are Claude 5 features and
   Haiku rejects the request outright — but in the one run measured here it
   stopped after the product search without building the cart. Swapping the
   model is not a one-line change; the request shape follows.
 - **The system prompt is `SERVER_INSTRUCTIONS` from the MCP package, then ours,
-  cached.** The server is the authority on how to drive the server; a
+  cached** — and it is only the *first* of two breakpoints; see §5b. The server is the authority on how to drive the server; a
   paraphrase would drift. Per-turn state goes in the *user* message via
   `stateBanner`, not the system prompt — anything that changes in the system
   prompt invalidates the cache for the whole conversation.
@@ -376,9 +379,9 @@ Two constraints that bite in this repo specifically:
   *It cannot resolve extensionless imports.* A test that imports a module which
   imports `'../mcp/bridge'` fails at load. This is why `turn-store.ts` depends
   on `loop.ts` with `import type` only — type imports are erased, so they cost
-  nothing at runtime — why `providers/wire.ts` and `providers/gate.ts` have no
-  relative imports at all, and why `providers/ollama.ts` spells its own as
-  `'./wire.ts'`. A package import resolves fine; a relative one does not.
+  nothing at runtime — and why `lib/units.ts` has no imports at all while
+  `deposit-watch.ts` spells its own as `'./units.ts'`. A package import
+  resolves fine; a relative one does not.
 
   *It rejects any syntax that emits code.* A parameter property —
   `constructor(readonly stage: string)` — is a field assignment in disguise, so
