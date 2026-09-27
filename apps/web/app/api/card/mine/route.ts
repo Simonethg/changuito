@@ -76,7 +76,7 @@
  * They are fetched from Vyrion per request and held nowhere: that is what makes
  * the localStorage mirror safe to be only a hint.
  */
-import { CARD_MIN_CENTS, formatUsd } from '@changuito/mcp/pay';
+import { CARD_MIN_CENTS, formatUsd, type VyrionClient } from '@changuito/mcp/pay';
 
 import { canIssueCard, cardClient, keepsOneCard, mintKeptCard } from '../../../../lib/card.ts';
 import { cardOf, hasDatabase, unbindCard } from '../../../../lib/db.ts';
@@ -95,7 +95,29 @@ function networkFrom(value: unknown): NetworkId {
   return value === 'mainnet' || value === 'testnet' ? value : DEFAULT_NETWORK;
 }
 
+/**
+ * Nothing thrown gets out of here as an empty body.
+ *
+ * A route that throws answers 500 with no content, and `res.json()` on the
+ * other end cannot parse that — so the dialog had no sentence to show, the
+ * shopper got a blank failure, and the only record was a log nobody was
+ * reading. The wrapper is deliberately the *last* resort: every refusal below
+ * is answered on purpose, in JSON, with a status that says what it is. If this
+ * catch ever fires, that is a bug above it.
+ *
+ * Never the upstream message. A card API's errors can quote the request back,
+ * and the request had a card in it.
+ */
 export async function POST(req: Request): Promise<Response> {
+  try {
+    return await handle(req);
+  } catch (err) {
+    console.error('[card/mine] unhandled:', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    return json({ error: 'no pudimos leer tu tarjeta en este momento' }, 500);
+  }
+}
+
+async function handle(req: Request): Promise<Response> {
   const gated = await requireHuman(req);
   if (gated) return gated;
 
@@ -153,13 +175,34 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  let cardId = await cardOf(network, address).catch(() => undefined);
-  const client = cardClient();
+  const cardId0 = await cardOf(network, address).catch(() => undefined);
 
+  // Not an error: most wallets have never been issued one, and saying "no"
+  // plainly is what lets the dialog offer to create one.
+  //
+  // Answered *before* the provider client is built, and that ordering is the
+  // whole point. This is the most common request the route gets — every open
+  // of the card dialog by somebody who has never made one — and it needs
+  // nothing from Vyrion. `cardClient()` constructs `VyrionClient`, whose
+  // constructor throws synchronously on a key it will not use (an `sk_live_`
+  // without `ALLOW_LIVE=1`, say), and it used to be called on this path: the
+  // throw escaped the route, and "you have no card yet" came back as a 500
+  // with an empty body. Nothing downstream could even parse it into a
+  // sentence. A client is now built only where one is actually used.
+  if (!cardId0 && input.create !== true) return json({ card: null }, 200);
+
+  let client: VyrionClient;
+  try {
+    client = cardClient();
+  } catch (err) {
+    // A deployment problem, not a shopper's. `canIssueCard` above catches the
+    // missing key; this catches every other way the constructor refuses.
+    console.error('[card/mine] card provider misconfigured:', err instanceof Error ? err.message : String(err));
+    return json({ error: 'las tarjetas no están disponibles en este momento' }, 503);
+  }
+
+  let cardId = cardId0;
   if (!cardId) {
-    // Not an error: most wallets have never been issued one, and saying "no"
-    // plainly is what lets the panel offer to create one.
-    if (input.create !== true) return json({ card: null }, 200);
     if (!keepsOneCard(network, address)) {
       return json({ error: 'en modo prueba la tarjeta se crea con cada compra' }, 400);
     }

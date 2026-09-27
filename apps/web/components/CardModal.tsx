@@ -57,7 +57,7 @@ export function CardModal({
   const lang = useLang();
   const copy = keptCardCopy(lang);
   const labels = uiCopy(lang).card;
-  const { card, frozen, busy, error, gone, load, create, retire } = useKeptCard(address, network, sign);
+  const { card, frozen, busy, error, gone, load, create, retire } = useKeptCard(address, network, sign, lang);
   const [confirming, setConfirming] = useState(false);
 
   // Once, on open. `load` is stable per address+network, and the hook holds an

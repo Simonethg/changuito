@@ -6,7 +6,8 @@ import type { IssuedCard } from '../app/api/card/route.ts';
 import { track } from './analytics';
 import { forgetCard } from './card-store.ts';
 import type { NetworkId } from './deployments.ts';
-import { KEPT_CARD, PURCHASES } from './orders-copy.ts';
+import { DEFAULT_LANG, type Lang } from './lang.ts';
+import { keptCardCopy, purchasesCopy } from './orders-copy.ts';
 import { signWalletProof, type WalletSigner } from './wallet-proof.ts';
 
 /**
@@ -46,6 +47,18 @@ import { signWalletProof, type WalletSigner } from './wallet-proof.ts';
  * `POST /api/card/mine` takes the `chg_user` session cookie, which login
  * already minted. So the first attempt carries no proof and opens no wallet,
  * and only a 401 — no cookie, or thirty days gone — asks for a signature.
+ *
+ * ## The server's sentence is not always the one to show
+ *
+ * The route answers in Spanish and always will: it is shared with the MCP
+ * server and with the agent, and neither reads a cookie from this browser. So
+ * `said` is given the language and hands back nothing in English, leaving the
+ * copy below — less specific, and readable. CheckoutModal, CardPanel,
+ * Purchases and use-chat all do the same thing for the same reason.
+ *
+ * `lang` arrives as an argument rather than from `useLang()`, the way
+ * `use-chat` takes it, so that nothing under `lib/` has to import a component.
+ * The caller is already inside `LangProvider` and already holds it.
  */
 export interface KeptCard {
   /** `undefined` is "not asked yet"; `null` is "asked, and there is none". */
@@ -67,12 +80,18 @@ export function useKeptCard(
   address: string | null,
   network: NetworkId,
   sign: WalletSigner,
+  lang: Lang = DEFAULT_LANG,
 ): KeptCard {
   const [card, setCard] = useState<IssuedCard | null | undefined>(undefined);
   const [frozen, setFrozen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
+  // Both selectors hand back a module-level constant, so these are stable for
+  // a given `lang` and safe in the dependency lists below — which matters,
+  // because `CardModal` loads from a `useEffect` keyed on `load`.
+  const copy = keptCardCopy(lang);
+  const signRefused = purchasesCopy(lang).signRefused;
   // A ref and not `busy`, because two effects in the same tick both read the
   // old state and both fetch. This is set before the first await.
   const inFlight = useRef(false);
@@ -96,26 +115,26 @@ export function useKeptCard(
         if (res.status === 401) {
           const proof = await signWalletProof(sign, 'card', address);
           if (!proof) {
-            setError(PURCHASES.signRefused);
+            setError(signRefused);
             return;
           }
           res = await post(proof);
         }
         const body = await res.json().catch(() => null);
         if (!res.ok) {
-          setError(said(body) ?? (create ? KEPT_CARD.createError : KEPT_CARD.error));
+          setError(said(body, lang) ?? (create ? copy.createError : copy.error));
           return;
         }
         setCard((body?.card ?? null) as IssuedCard | null);
         setFrozen(body?.frozen === true);
       } catch {
-        setError(create ? KEPT_CARD.createError : KEPT_CARD.error);
+        setError(create ? copy.createError : copy.error);
       } finally {
         inFlight.current = false;
         setBusy(false);
       }
     },
-    [address, network, sign],
+    [address, network, sign, lang, copy, signRefused],
   );
 
   const load = useCallback(() => ask(false), [ask]);
@@ -129,7 +148,7 @@ export function useKeptCard(
     try {
       const proof = await signWalletProof(sign, 'retire', address);
       if (!proof) {
-        setError(PURCHASES.signRefused);
+        setError(signRefused);
         return;
       }
       const res = await fetch('/api/card/retire', {
@@ -140,7 +159,7 @@ export function useKeptCard(
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(said(body) ?? KEPT_CARD.retireError);
+        setError(said(body, lang) ?? copy.retireError);
         return;
       }
       // The localStorage hint is the one thing the server cannot clear, and
@@ -152,22 +171,24 @@ export function useKeptCard(
       setGone(true);
       track('card_retired', { network });
     } catch {
-      setError(KEPT_CARD.retireError);
+      setError(copy.retireError);
     } finally {
       inFlight.current = false;
       setBusy(false);
     }
-  }, [address, network, sign]);
+  }, [address, network, sign, lang, copy, signRefused]);
   return { card, frozen, busy, error, load, create, retire, gone };
 }
 
 /**
- * The server's sentence when it has one. Its refusals are written for the
- * person reading them — "no podemos emitir tarjetas nuevas en este momento"
- * says more than a generic failure — and anything else is dropped rather than
- * shown, because an upstream error can quote the request back.
+ * The server's sentence when it has one this reader can use. Its refusals are
+ * written for the person reading them — "no podemos emitir tarjetas nuevas en
+ * este momento" says more than a generic failure — and anything else is
+ * dropped rather than shown, because an upstream error can quote the request
+ * back. In English nothing comes through at all; see the header.
  */
-function said(body: unknown): string | null {
+function said(body: unknown, lang: Lang = DEFAULT_LANG): string | null {
+  if (lang === 'en') return null;
   const b = (body ?? {}) as { error?: unknown; message?: unknown };
   const text = typeof b.message === 'string' ? b.message : typeof b.error === 'string' ? b.error : '';
   return text && text.length <= 160 && !/[{}<>]/.test(text) ? text : null;
