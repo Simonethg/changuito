@@ -2,6 +2,9 @@
 
 import { useState } from 'react';
 
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
+
 /**
  * A label, a value the shopper has to retype somewhere else, and a button that
  * saves them from retyping it.
@@ -30,9 +33,10 @@ export function CopyField({
   testid: string;
   mono?: boolean;
 }) {
+  const copy = uiCopy(useLang()).field;
   const [copied, setCopied] = useState(false);
 
-  async function copy() {
+  async function run() {
     try {
       await navigator.clipboard.writeText(copyValue ?? value);
       setCopied(true);
@@ -54,10 +58,10 @@ export function CopyField({
         <button
           type="button"
           className="ck-copy"
-          onClick={() => void copy()}
-          aria-label={`Copiar ${label.toLowerCase()}`}
+          onClick={() => void run()}
+          aria-label={copy.copyAria(label.toLowerCase())}
         >
-          {copied ? 'Copiado' : 'Copiar'}
+          {copied ? copy.copied : copy.copy}
         </button>
       </dd>
     </div>

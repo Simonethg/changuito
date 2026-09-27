@@ -8,8 +8,10 @@ import { track } from '../lib/analytics';
 import { type CardHint, recallCard, rememberCard } from '../lib/card-store.ts';
 import type { CheckoutCopy } from '../lib/checkout-copy.ts';
 import type { NetworkId } from '../lib/deployments.ts';
+import { DEFAULT_LANG, type Lang } from '../lib/lang.ts';
 import { CardFace } from './CardFace';
 import { CopyField } from './CopyField';
+import { useLang } from './LangProvider';
 
 /**
  * The card the shopper does not have to own.
@@ -61,6 +63,7 @@ interface Props {
 }
 
 export function CardPanel({ memo, network, copy, onIssued }: Props) {
+  const lang = useLang();
   const [card, setCard] = useState<IssuedCard | null>(null);
   const [minting, setMinting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +145,7 @@ export function CardPanel({ memo, network, copy, onIssued }: Props) {
         // on, where a generic failure does not. The routes write theirs as
         // lowercase fragments, so it is punctuated here rather than there:
         // it is about to be followed by another sentence.
-        setError(typeof body?.error === 'string' ? sentence(body.error) : copy.cardError);
+        setError(said(body, lang) ?? copy.cardError);
         return;
       }
       const issued = body as IssuedCard;
@@ -160,7 +163,7 @@ export function CardPanel({ memo, network, copy, onIssued }: Props) {
     } finally {
       setMinting(false);
     }
-  }, [minting, card, memo, network, copy.cardError, copy.cardAgainCta, hint, onIssued]);
+  }, [minting, card, lang, memo, network, copy.cardError, copy.cardAgainCta, hint, onIssued]);
 
   // Watch for a challenge for as long as there is a card to challenge. A
   // failed poll is a poll, not a verdict — the route answers `code: null` for
@@ -282,6 +285,22 @@ export function CardPanel({ memo, network, copy, onIssued }: Props) {
       </div>
     </div>
   );
+}
+
+/**
+ * What a failed route said, if it said anything this reader can parse.
+ *
+ * Nothing, in English. The API routes answer in Spanish and always will — they
+ * are shared with the MCP server and with the agent, and neither of those
+ * reads a cookie from this browser. Handing over the server's sentence would
+ * put a Spanish fragment in front of the one reader who cannot use it, so the
+ * caller's own fallback wins instead: less specific, and readable. Purchases
+ * has the same helper, for the same reason.
+ */
+function said(body: unknown, lang: Lang = DEFAULT_LANG): string | null {
+  if (lang === 'en') return null;
+  const b = (body ?? {}) as { error?: unknown };
+  return typeof b.error === 'string' ? sentence(b.error) : null;
 }
 
 /** A fragment from an API turned into something that can sit in a paragraph. */

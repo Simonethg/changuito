@@ -2,9 +2,10 @@ import type Anthropic from '@anthropic-ai/sdk';
 
 import { callMcpTool, mcpToolsToAnthropic } from '../mcp/bridge';
 import type { Session } from '../mcp/session';
+import { DEFAULT_LANG, inLang, type Lang } from '../lang.ts';
 import type { UiEvent } from '../protocol';
 import { earlyLocationAsk } from './early-ask';
-import { CHANGUITO_PROMPT, stateBanner } from './prompt';
+import { changuitoPrompt, stateBanner } from './prompt';
 import { anthropicProvider } from './providers/anthropic';
 import type { HopResult } from './providers/types';
 import {
@@ -95,6 +96,8 @@ export async function runTurn(
   turn: Turn,
   userText: string,
   emit: (e: UiEvent) => void,
+  /** Which language the browser's footer is set to. The route reads it off the request. */
+  lang: Lang = DEFAULT_LANG,
 ): Promise<{ brain: string }> {
   const t0 = Date.now();
 
@@ -103,6 +106,7 @@ export async function runTurn(
     hasLocation: Boolean(session.state.getLocation()),
     firstMessage: turn.messages.length === 0,
     text: userText,
+    lang,
   });
   if (ask) {
     turn.messages.push(
@@ -142,7 +146,7 @@ export async function runTurn(
   const system: Anthropic.TextBlockParam[] = [
     {
       type: 'text',
-      text: `${session.client.getInstructions() ?? ''}\n\n${CHANGUITO_PROMPT}`.trim(),
+      text: `${session.client.getInstructions() ?? ''}\n\n${changuitoPrompt(lang)}`.trim(),
       cache_control: { type: 'ephemeral' },
     },
   ];
@@ -150,7 +154,14 @@ export async function runTurn(
   for (let hop = 0; hop < MAX_HOPS; hop++) {
     const remaining = TURN_BUDGET_MS - (Date.now() - t0);
     if (remaining <= 0) {
-      emit({ t: 'error', message: 'La búsqueda tardó demasiado. Probá pidiéndolo más simple.', recoverable: true });
+      emit({
+        t: 'error',
+        message: inLang(lang, {
+          es: 'La búsqueda tardó demasiado. Probá pidiéndolo más simple.',
+          en: 'The search took too long. Try asking for something simpler.',
+        }),
+        recoverable: true,
+      });
       return { brain: brain.label };
     }
 
@@ -182,7 +193,14 @@ export async function runTurn(
     if (msg.stopReason === 'max_tokens') {
       // A tool input truncated mid-object can still parse. Running it would be
       // acting on half an instruction.
-      emit({ t: 'error', message: 'La respuesta se cortó. Probá de nuevo.', recoverable: true });
+      emit({
+        t: 'error',
+        message: inLang(lang, {
+          es: 'La respuesta se cortó. Probá de nuevo.',
+          en: 'The reply cut out. Try again.',
+        }),
+        recoverable: true,
+      });
       return { brain: brain.label };
     }
     if (msg.stopReason === 'pause_turn') continue;
@@ -228,7 +246,10 @@ export async function runTurn(
 
   emit({
     t: 'error',
-    message: 'Me quedé dando vueltas sin llegar a un carrito. Probá pidiéndolo más simple.',
+    message: inLang(lang, {
+      es: 'Me quedé dando vueltas sin llegar a un carrito. Probá pidiéndolo más simple.',
+      en: 'I went round in circles without getting to a trolley. Try asking for something simpler.',
+    }),
     recoverable: true,
   });
   return { brain: brain.label };

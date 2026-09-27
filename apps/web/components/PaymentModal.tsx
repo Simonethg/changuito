@@ -8,12 +8,14 @@ import type { Cart } from '@changuito/mcp/types';
 import { track, trackLoginStart } from '../lib/analytics';
 import type { QuoteResponse } from '../app/api/quote/route.ts';
 import { deployment } from '../lib/deployments.ts';
-import { modeCopy, TRUSTLINE } from '../lib/mode-copy.ts';
+import { modeCopy, trustlineCopy } from '../lib/mode-copy.ts';
 import { basketHash, newOrderId, openArgs, toHex, type OpenedOrder } from '../lib/order.ts';
 import { pollarEnabledOn, shortAddress } from '../lib/pollar.ts';
 import { usdcAsset } from '../lib/trustline.ts';
 import { useBalances } from '../lib/use-balances.ts';
 import { useFaucetAccess } from '../lib/use-faucet-access.ts';
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
 import { useNetwork } from './NetworkProvider';
 
 /**
@@ -47,7 +49,10 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
   const { data: balance, refresh } = useBalances(address, network);
   // Point at "Cargar USDC" only for wallets that actually have the button.
   const canFund = useFaucetAccess(address, network)?.allowed === true;
-  const mode = modeCopy(network);
+  const lang = useLang();
+  const copy = uiCopy(lang).payment;
+  const mode = modeCopy(network, lang);
+  const trustlineText = trustlineCopy(lang);
 
   // The one-time step before the first real payment. `not-needed` in modo
   // prueba, always — the demo token has no issuer, so there is nothing to
@@ -111,7 +116,7 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
     setTrustlineError(null);
     try {
       const outcome = await setTrustline(asset);
-      if (outcome.status === 'error') throw new Error(outcome.details ?? TRUSTLINE.failed);
+      if (outcome.status === 'error') throw new Error(outcome.details ?? trustlineText.failed);
       refresh();
     } catch (err) {
       track('payment_fail', { flow: 'checkout', code: 'trustline' });
@@ -148,7 +153,7 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
           outcome.message ??
             outcome.details ??
             outcome.resultCode ??
-            'la red rechazó la transacción',
+            copy.networkRefused,
         );
       }
 
@@ -185,17 +190,17 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
         className="modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Confirmar el pago"
+        aria-label={copy.aria}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
-          <h2>Confirmar y pagar</h2>
+          <h2>{copy.title}</h2>
           <button
             type="button"
             className="modal-x"
             onClick={onClose}
             disabled={phase === 'signing'}
-            aria-label="Cerrar"
+            aria-label={copy.close}
           >
             ×
           </button>
@@ -215,7 +220,7 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
 
         <dl className="pay-rows">
           <div>
-            <dt>Total en el super</dt>
+            <dt>{copy.storeTotal}</dt>
             <dd>{cart.total.display}</dd>
           </div>
           <div className="pay-total">
@@ -224,12 +229,12 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
           </div>
           {quote ? (
             <div className="pay-fine">
-              <dt>Tipo de cambio</dt>
+              <dt>{copy.rate}</dt>
               <dd>{quote.arsPerUsd.toFixed(2)} ARS/USD</dd>
             </div>
           ) : null}
           <div className="pay-fine">
-            <dt>Tu saldo</dt>
+            <dt>{copy.balance}</dt>
             <dd>{balance ? `${balance.usdcDisplay} ${mode.balanceUnit}` : '-'}</dd>
           </div>
         </dl>
@@ -238,28 +243,25 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
         {failure ? <p className="pay-error">{failure}</p> : null}
         {short ? (
           <p className="pay-warn">
-            {canFund
-              ? 'No te alcanza el saldo. Cargá USDC arriba y volvé a intentar.'
-              : 'No te alcanza el saldo para este pago.'}
+            {canFund ? copy.shortFundable : copy.short}
           </p>
         ) : null}
         {needsTrustline ? (
           <div className="pay-step">
-            <strong>{TRUSTLINE.title}</strong>
-            <p>{TRUSTLINE.body}</p>
-            {trustlineError ? <p className="pay-error">{TRUSTLINE.failed}</p> : null}
+            <strong>{trustlineText.title}</strong>
+            <p>{trustlineText.body}</p>
+            {trustlineError ? <p className="pay-error">{trustlineText.failed}</p> : null}
           </div>
         ) : null}
         <p className="pay-note">
           {mode.payNote ? <strong>{mode.payNote} </strong> : null}
-          El monto queda reservado hasta que completes la compra en el súper. Si no se concreta,
-          vuelve a tu saldo. Pagá con tarjeta o USDC.
+          {copy.note}
         </p>
 
         <div className="modal-actions">
           {!address ? (
             <button type="button" className="btn" onClick={() => trackLoginStart(openLoginModal)}>
-              Empezá a comprar
+              {copy.startCta}
             </button>
           ) : needsTrustline ? (
             <button
@@ -270,7 +272,7 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
               onClick={() => void openTrustline()}
               disabled={opening || !verified}
             >
-              {opening ? TRUSTLINE.working : TRUSTLINE.action}
+              {opening ? trustlineText.working : trustlineText.action}
             </button>
           ) : (
             <button
@@ -281,9 +283,9 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
               disabled={!quote || !verified || short || phase === 'signing'}
             >
               {phase === 'signing'
-                ? 'Confirmando…'
+                ? copy.signing
                 : !verified
-                  ? 'Verificando sesión…'
+                  ? copy.verifying
                   : mode.payLabel(quote ? quote.display : '')}
             </button>
           )}
@@ -294,7 +296,7 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
               back to the basket, which is what they actually wanted. */}
           {needsTrustline ? (
             <button type="button" className="btn btn-ghost" onClick={onClose}>
-              {TRUSTLINE.back}
+              {trustlineText.back}
             </button>
           ) : null}
           <button
@@ -303,12 +305,12 @@ function PayWithPollar({ cart, handoffUrl, onClose, onOpened }: Props) {
             onClick={onClose}
             disabled={phase === 'signing'}
           >
-            Cancelar
+            {copy.cancel}
           </button>
         </div>
 
         {address ? (
-          <p className="pay-fine-line">Desde {shortAddress(address)}</p>
+          <p className="pay-fine-line">{copy.from(shortAddress(address))}</p>
         ) : null}
       </section>
     </div>

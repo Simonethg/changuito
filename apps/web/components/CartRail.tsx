@@ -3,7 +3,10 @@
 import type { Cart } from '@changuito/mcp/types';
 
 import type { Receipt } from '../lib/chat-store.ts';
+import { INTL_LOCALE, type Lang } from '../lib/lang.ts';
 import { RETAILER_NAMES } from '../lib/retailers.ts';
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
 import { useShop } from './ShopProvider';
 
 /**
@@ -20,12 +23,13 @@ import { useShop } from './ShopProvider';
  * folder unused since the first drop.
  */
 export function CartRail() {
+  const copy = uiCopy(useLang()).rail;
   const shop = useShop();
   const cart = shop?.cart ?? null;
   const receipt = shop?.receipt ?? null;
   const store = receipt?.retailer ?? cart?.retailer ?? null;
   return (
-    <aside className="rail rail-cart" aria-label={receipt ? 'Tu compra' : 'Tu changuito'}>
+    <aside className="rail rail-cart" aria-label={receipt ? copy.paidAria : copy.cartAria}>
       <div className={receipt ? 'rail-cart-panel is-paid' : 'rail-cart-panel'}>
         <img
           className="rail-mascot"
@@ -36,7 +40,7 @@ export function CartRail() {
           height={609}
         />
         <header className="rail-cart-head">
-          <span className="rail-cart-title">{receipt ? 'Tu compra' : 'Tu changuito'}</span>
+          <span className="rail-cart-title">{receipt ? copy.paidTitle : copy.cartTitle}</span>
           {store ? <span className="rail-cart-store">{RETAILER_NAMES[store] ?? store}</span> : null}
         </header>
         {receipt ? (
@@ -61,11 +65,13 @@ export function CartRail() {
  * re-formatted now. A receipt that quietly re-prices itself is not a receipt.
  */
 function RailReceipt({ receipt }: { receipt: Receipt }) {
+  const lang = useLang();
+  const copy = uiCopy(lang).rail;
   return (
     <>
       <p className="rail-cart-paid" data-testid="receipt-paid">
-        <span className="rail-chip rail-chip-paid">Pagado</span>
-        <time dateTime={new Date(receipt.paidAt).toISOString()}>{paidOn(receipt.paidAt)}</time>
+        <span className="rail-chip rail-chip-paid">{copy.paid}</span>
+        <time dateTime={new Date(receipt.paidAt).toISOString()}>{paidOn(receipt.paidAt, lang)}</time>
       </p>
       <ul className="rail-cart-lines">
         {receipt.lines.map((l, i) => (
@@ -80,20 +86,18 @@ function RailReceipt({ receipt }: { receipt: Receipt }) {
       </ul>
       <footer className="rail-cart-foot">
         <div className="rail-cart-total">
-          <span>Total</span>
+          <span>{copy.total}</span>
           <strong>{receipt.total}</strong>
         </div>
-        <p className="rail-cart-ref">
-          Pagaste {receipt.paidDisplay} · pedido {receipt.orderId}
-        </p>
+        <p className="rail-cart-ref">{copy.ref(receipt.paidDisplay, receipt.orderId)}</p>
       </footer>
     </>
   );
 }
 
-function paidOn(at: number): string {
+function paidOn(at: number, lang: Lang): string {
   try {
-    return new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    return new Intl.DateTimeFormat(INTL_LOCALE[lang], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
       .format(new Date(at));
   } catch {
     return '';
@@ -101,14 +105,11 @@ function paidOn(at: number): string {
 }
 
 function EmptyRail() {
-  return (
-    <p className="rail-cart-empty">
-      Todavía no hay nada acá. Contale a Changuito qué necesitás y lo va llenando.
-    </p>
-  );
+  return <p className="rail-cart-empty">{uiCopy(useLang()).rail.empty}</p>;
 }
 
 function RailLines({ cart }: { cart: Cart }) {
+  const copy = uiCopy(useLang()).rail;
   const unavailable = cart.lines.filter((l) => !l.available).length;
   return (
     <>
@@ -127,11 +128,11 @@ function RailLines({ cart }: { cart: Cart }) {
       <footer className="rail-cart-foot">
         {unavailable > 0 ? (
           <p className="rail-cart-warn">
-            {unavailable === 1 ? '1 producto sin stock.' : `${unavailable} productos sin stock.`}
+            {unavailable === 1 ? copy.oosOne : copy.oosMany(unavailable)}
           </p>
         ) : null}
         <div className="rail-cart-total">
-          <span>Total</span>
+          <span>{copy.total}</span>
           <strong>{cart.total.display}</strong>
         </div>
       </footer>

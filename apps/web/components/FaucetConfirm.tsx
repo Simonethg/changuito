@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef } from 'react';
 
 import { faucetConfirmCopy } from '../lib/faucet-copy.ts';
+import { useLang } from './LangProvider';
 
 /**
  * Asks before the faucet mints.
@@ -25,7 +26,7 @@ export function FaucetConfirm({
   onConfirm: () => void;
   onClose: () => void;
 }) {
-  const copy = faucetConfirmCopy(balanceUnits);
+  const copy = faucetConfirmCopy(balanceUnits, useLang());
   const titleId = useId();
   const bodyId = useId();
   const dialog = useRef<HTMLElement>(null);

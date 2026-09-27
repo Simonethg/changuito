@@ -2,6 +2,7 @@ import { newTurnState, runTurn } from '@/lib/agent/loop';
 import { turnStore } from '@/lib/agent/turn-store';
 import { archiveChat, chatTitle } from '@/lib/chat-archive';
 import { asNetwork, DEFAULT_NETWORK } from '@/lib/deployments';
+import { langFrom } from '@/lib/lang';
 import { withSession } from '@/lib/mcp/session';
 import { encodeEvent, HEARTBEAT, SSE_HEADERS, type ChatRequest, type UiEvent } from '@/lib/protocol';
 import { requireHuman } from '@/lib/human-gate';
@@ -64,6 +65,12 @@ export async function POST(req: Request): Promise<Response> {
   const user = await readLoggedInUser(req);
   const owner = user.ok ? user.address : null;
   const network = asNetwork(body.network) ?? DEFAULT_NETWORK;
+  // Which language the agent answers in, and nothing else. This route's own
+  // refusals stay Spanish: they are shared with the MCP server and with the
+  // agent, neither of which reads a cookie from this browser, so the client
+  // prefers its own copy over whatever lands here. `langFrom` puts anything
+  // unrecognised on the default rather than trusting the body.
+  const lang = langFrom(body.lang);
 
   // One key, checked here so a misconfigured deployment says so up front
   // rather than opening a stream and dying on the first hop.
@@ -113,7 +120,7 @@ export async function POST(req: Request): Promise<Response> {
           // per-session queue covers the whole read-modify-write and two tabs
           // on one id cannot each save a history missing the other's messages.
           const turn = (await turns.get(body.sessionId)) ?? newTurnState();
-          brain = (await runTurn(session, turn, body.message, emit)).brain;
+          brain = (await runTurn(session, turn, body.message, emit, lang)).brain;
 
           // Only after a clean return. A turn that threw mid-hop can leave an
           // assistant `tool_use` with no matching `tool_result`, and the API

@@ -1,4 +1,5 @@
 import { DEFAULT_NETWORK, type NetworkId } from './deployments.ts';
+import { DEFAULT_LANG, type Lang } from './lang.ts';
 
 /**
  * What the app calls each mode, everywhere a number or a button appears.
@@ -62,8 +63,12 @@ const REAL: ModeCopy = {
 
 const COPY: Record<NetworkId, ModeCopy> = { testnet: PRUEBA, mainnet: REAL };
 
-export function modeCopy(net: NetworkId = DEFAULT_NETWORK): ModeCopy {
-  return COPY[net];
+/**
+ * The mode's voice. `lang` is optional and defaults to Spanish, so every
+ * existing caller — and `lib/test/mode-copy.test.ts` — keeps the answer it had.
+ */
+export function modeCopy(net: NetworkId = DEFAULT_NETWORK, lang: Lang = DEFAULT_LANG): ModeCopy {
+  return lang === 'en' ? COPY_EN[net] : COPY[net];
 }
 
 /**
@@ -177,3 +182,134 @@ export const RECEIVE = {
   warn: 'Si elegís otra red, el dinero no llega y no se puede recuperar.',
   dismiss: 'Listo',
 } as const;
+
+/* ------------------------------------------------------------------------- *
+ * English
+ *
+ * Everything above is the Spanish original, untouched: `MODES`, `modeCopy`,
+ * `PREVIEW_MASTHEAD`, `BALANCE` and `TRUSTLINE` still export the exact strings
+ * `lib/test/mode-copy.test.ts` reads, and `modeCopy(net)` with one argument
+ * still answers in Spanish. English is a second set of the same keys, selected
+ * beside them.
+ *
+ * The vocabulary rule is not about Spanish. "Practice mode" and "Real mode" are
+ * the English names, and neither says testnet, chain or wallet, for the reason
+ * the header gives: it would be a strange app where the model is careful in one
+ * language and the buttons are careless in the other.
+ *
+ * "Practice" rather than "Test": a test mode reads like a developer setting
+ * somebody left switched on, and this is a mode the shopper is meant to want.
+ * ------------------------------------------------------------------------- */
+
+const PRACTICE: ModeCopy = {
+  network: 'testnet',
+  label: 'Practice mode',
+  short: 'Practice',
+  balanceUnit: 'practice USDC',
+  hint: 'Not real money: you can try the whole payment without spending anything.',
+  payLabel: (amount) => `Try paying ${amount}`,
+  payNote: 'This is practice: no real money moves.',
+  holdNote: "It's practice, so no real money was held.",
+};
+
+const LIVE: ModeCopy = {
+  network: 'mainnet',
+  label: 'Real mode',
+  short: 'Real',
+  balanceUnit: 'USDC',
+  hint: "This is real money. Check the amount before you confirm.",
+  payLabel: (amount) => `Pay ${amount} USDC`,
+  payNote: '',
+  holdNote: '',
+};
+
+const COPY_EN: Record<NetworkId, ModeCopy> = { testnet: PRACTICE, mainnet: LIVE };
+
+export const MODES_EN: readonly ModeCopy[] = [PRACTICE, LIVE];
+
+export const PREVIEW_MASTHEAD_EN = {
+  hint: "Try the whole payment on our money.",
+  action: 'Switch to real mode',
+} as const;
+
+export const BALANCE_EN = {
+  unavailable: "We couldn't read your balance just now. Try again in a bit.",
+} as const;
+
+export const TRUSTLINE_EN = {
+  title: 'One step, one time',
+  body: 'Before your account can receive dollars, they have to be switched on. It’s free, it takes a few seconds, and you won’t be asked again.',
+  action: 'Switch on dollars',
+  working: 'Switching on…',
+  failed: "That didn't work. You can try again, or leave it for later.",
+  back: 'Back to the cart',
+} as const;
+
+const RECEIVE_EN = {
+  title: 'Add dollars',
+  lead: 'This is your address. Send USDC here from wherever you keep it.',
+  qrAlt: 'QR code with your address',
+  addressLabel: 'Your address',
+  facts: ['Network: Stellar', 'Asset: USDC', 'Memo: not needed'] as readonly string[],
+  warn: "If you pick a different network the money will not arrive, and it cannot be recovered.",
+  dismiss: 'Done',
+} as const;
+
+/*
+ * The selectors.
+ *
+ * Each return type is a named interface rather than `typeof PREVIEW_MASTHEAD`,
+ * because the Spanish objects are `as const` and that would make the literal
+ * Spanish sentence the type — an English return would not assign to it. The
+ * interfaces are also what keeps a key from being added to one language and
+ * forgotten in the other.
+ */
+
+export interface PreviewMastheadCopy {
+  hint: string;
+  action: string;
+}
+
+export interface BalanceCopy {
+  unavailable: string;
+}
+
+export interface TrustlineCopy {
+  title: string;
+  body: string;
+  action: string;
+  working: string;
+  failed: string;
+  back: string;
+}
+
+export interface ReceiveCopy {
+  title: string;
+  lead: string;
+  qrAlt: string;
+  addressLabel: string;
+  facts: readonly string[];
+  warn: string;
+  dismiss: string;
+}
+
+/** Both modes' wording in one language, for the places that iterate them. */
+export function modes(lang: Lang): readonly ModeCopy[] {
+  return lang === 'en' ? MODES_EN : MODES;
+}
+
+export function previewMasthead(lang: Lang): PreviewMastheadCopy {
+  return lang === 'en' ? PREVIEW_MASTHEAD_EN : PREVIEW_MASTHEAD;
+}
+
+export function balanceCopy(lang: Lang): BalanceCopy {
+  return lang === 'en' ? BALANCE_EN : BALANCE;
+}
+
+export function trustlineCopy(lang: Lang): TrustlineCopy {
+  return lang === 'en' ? TRUSTLINE_EN : TRUSTLINE;
+}
+
+export function receiveCopy(lang: Lang): ReceiveCopy {
+  return lang === 'en' ? RECEIVE_EN : RECEIVE;
+}

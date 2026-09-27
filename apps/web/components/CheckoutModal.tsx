@@ -16,6 +16,7 @@ import { DEFAULT_NETWORK } from '../lib/deployments.ts';
 import { pollarEnabledOn } from '../lib/pollar.ts';
 import { realModeNeedsProof } from '../lib/real-mode.ts';
 import { isFramableCheckout, STOREFRONT_HOSTS } from '../lib/storefront.ts';
+import { uiCopy } from '../lib/ui-copy.ts';
 import { stroops } from '../lib/units.ts';
 import { useBalances } from '../lib/use-balances.ts';
 import { useNetworkAccess } from '../lib/use-network-access.ts';
@@ -23,6 +24,7 @@ import { useWalletSigner } from '../lib/use-wallet-signer.ts';
 import { signWalletProof, type WalletProof, type WalletSigner } from '../lib/wallet-proof.ts';
 import { CardPanel } from './CardPanel';
 import { CopyField } from './CopyField';
+import { useLang } from './LangProvider';
 import { useNetwork } from './NetworkProvider';
 
 /**
@@ -195,7 +197,9 @@ const IDENTIFY_MAX = 12;
 
 function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, sign, pay }: DialogProps) {
   const { network } = useNetwork();
-  const copy = checkoutCopy(network);
+  const lang = useLang();
+  const copy = checkoutCopy(network, lang);
+  const ui = uiCopy(lang).checkout;
 
   // Null until the server answers, and null forever for a guest with no
   // address — which is right, because a guest cannot be in a gated mode.
@@ -313,7 +317,7 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
     // when they do this effect runs again with an address and mints properly.
     // The ref is what makes that safe — one mint, however many times we get here.
     if (needsProof && (!address || !sign)) {
-      setMintError('Iniciá sesión con tu cuenta para pagar.');
+      setMintError(ui.signInToPay);
       return;
     }
 
@@ -327,7 +331,7 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
           if (!signed) {
             // A passkey smart wallet (C…) lands here: it cannot sign SEP-53 at
             // all, so this is the end of the road rather than a retry.
-            setMintError('No pudimos confirmar tu sesión. Probá de nuevo.');
+            setMintError(ui.sessionFailed);
             return;
           }
           proof = signed;
@@ -340,17 +344,22 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
         const body = await res.json();
         if (!res.ok) {
           // `message` first: the gate's `error` is a code for the logs, and
-          // its `message` is the sentence written for the shopper.
-          const said = typeof body?.message === 'string' ? body.message : body?.error;
-          setMintError(typeof said === 'string' ? said : 'No pudimos preparar el pago.');
+          // its `message` is the sentence written for the shopper. In Spanish
+          // only — the routes answer in Spanish and always will, since the MCP
+          // server and the agent share them and neither reads this browser's
+          // cookie. An English reader gets the sentence below instead: less
+          // specific, and one they can read. Purchases and CardPanel do the
+          // same, and explain it at more length.
+          const said = lang === 'en' ? null : typeof body?.message === 'string' ? body.message : body?.error;
+          setMintError(typeof said === 'string' ? said : ui.prepareFailed);
           return;
         }
         setIntent(body as DepositIntent);
       } catch {
-        setMintError('No pudimos preparar el pago. Revisá la conexión y volvé a intentar.');
+        setMintError(ui.prepareOffline);
       }
     })();
-  }, [cart.total.centavos, network, mode, address, sign, chatId]);
+  }, [cart.total.centavos, lang, network, mode, address, sign, chatId, ui]);
 
   // Poll until it lands. A 502 is the network being unreadable, not a missing
   // importe, so it leaves the screen saying "esperando" rather than "no llegó".
@@ -582,7 +591,7 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
       >
         <header className="modal-head">
           <h2>{copy.title}</h2>
-          <button type="button" className="modal-x" onClick={close} aria-label="Cerrar">
+          <button type="button" className="modal-x" onClick={close} aria-label={ui.close}>
             ×
           </button>
         </header>
@@ -597,7 +606,7 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
                 {mintError}
               </p>
             ) : !intent ? (
-              <p className="ck-lead">Preparando…</p>
+              <p className="ck-lead">{ui.preparing}</p>
             ) : (
               <>
                 <dl className="ck-fields">
@@ -701,10 +710,10 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
                 disabled={!confirmed}
                 onClick={() => setStep('checkout')}
               >
-                Seguir
+                {ui.continueCta}
               </button>
               <button type="button" className="btn btn-ghost" onClick={close}>
-                Cancelar
+                {ui.cancel}
               </button>
             </div>
           </div>
@@ -733,7 +742,7 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
                   onClick={() => setIdentified(true)}
                   disabled={identified}
                 >
-                  Ya ingresé
+                  {ui.loggedIn}
                 </button>
               </div>
               {identified ? (
@@ -799,11 +808,11 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
                   data-testid="checkout-anyway"
                   onClick={settle}
                 >
-                  Seguir igual
+                  {ui.anyway}
                 </button>
               ) : null}
               <button type="button" className="btn btn-ghost" onClick={close}>
-                Cerrar
+                {ui.close}
               </button>
             </div>
 

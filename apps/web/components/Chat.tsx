@@ -5,18 +5,27 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { Cart } from '@changuito/mcp/types';
 
-import { STARTERS } from '../lib/agent/prompt';
+import { starters } from '../lib/agent/prompt';
 import { errorCode, track, trackLoginStart } from '../lib/analytics';
 import { canRetry, type Block, type ChatState } from '../lib/chat-state';
 import type { Receipt } from '../lib/chat-store.ts';
-import { FREE_TURNS, LOGIN_CTA, LOGIN_REQUIRED_MESSAGE, loginGateBannerText } from '../lib/login-constants';
+import { INTL_LOCALE, type Lang } from '../lib/lang.ts';
+import {
+  FREE_TURNS,
+  loginCta,
+  LOGIN_REQUIRED_MESSAGE,
+  loginGateBannerText,
+  loginRequiredMessage,
+} from '../lib/login-constants';
 import { pollarEnabled } from '../lib/pollar';
 import { ensureUserCookie } from '../lib/session-login';
 import { progressCopy } from '../lib/turn-progress.ts';
+import { uiCopy } from '../lib/ui-copy.ts';
 import { useChat } from '../lib/use-chat';
 import { useWalletSigner } from '../lib/use-wallet-signer.ts';
 import type { WalletSigner } from '../lib/wallet-proof.ts';
 import { CartCard } from './CartCard';
+import { useLang } from './LangProvider';
 import { useNetwork } from './NetworkProvider';
 import { RetryIcon } from './icons';
 import { CheckoutModal } from './CheckoutModal';
@@ -25,32 +34,6 @@ import { useShop } from './ShopProvider';
 import { MarkdownText } from './MarkdownText';
 import { ReportBug } from './ReportBug';
 import { ToolTrail } from './ToolTrail';
-
-/**
- * Rotating rioplatense prompts for the composer.
- *
- * Each has a short twin for phones. The long ones run four lines in a 390px
- * field, which is past the height cap, so an empty box showed a scrollbar and
- * a sentence cut in half. The short ones fit two lines at 360px.
- */
-const COMPOSER_PLACEHOLDERS = [
-  {
-    long: '¿Qué necesitás del súper? Contanos para cuántos cocinás y te armamos la lista de lo que necesitás.',
-    short: '¿Qué necesitás del súper y para cuántos?',
-  },
-  {
-    long: '¿Asado, milanesas o algo light? Decime para cuántos y Changuito arma la lista.',
-    short: '¿Asado, milanesas o algo light?',
-  },
-  {
-    long: 'Contame la receta y para cuántos cocinás. Yo me encargo del súper.',
-    short: 'Decime qué cocinás y para cuántos.',
-  },
-  {
-    long: '¿Semana laboral o juntada? Decime cuántos son y qué comen, y armamos el carrito.',
-    short: '¿Semana laboral o juntada?',
-  },
-] as const;
 
 /** Same breakpoint as the phone layout in globals.css. */
 const NARROW = '(max-width: 560px)';
@@ -61,31 +44,25 @@ const NARROW = '(max-width: 560px)';
  * The server renders the first one; the random pick and the phone variant
  * happen after mount. Picking at random during render gave the server and the
  * browser different attributes, which React reports and does not repair.
+ *
+ * Each prompt has a short twin for phones. The long ones run four lines in a
+ * 390px field, which is past the height cap, so an empty box showed a
+ * scrollbar and a sentence cut in half. The short ones fit two lines at 360px.
+ * Both halves live in `ui-copy.ts`, in both languages.
  */
-function useComposerPlaceholder(): string {
-  const [text, setText] = useState<string>(COMPOSER_PLACEHOLDERS[0].long);
+function useComposerPlaceholder(lang: Lang): string {
+  const pairs = uiCopy(lang).chat.placeholders;
+  const [text, setText] = useState<string>(pairs[0]!.long);
   useEffect(() => {
-    const pick = COMPOSER_PLACEHOLDERS[Math.floor(Math.random() * COMPOSER_PLACEHOLDERS.length)]!;
+    const pick = pairs[Math.floor(Math.random() * pairs.length)]!;
     const narrow = window.matchMedia(NARROW);
     const apply = () => setText(narrow.matches ? pick.short : pick.long);
     apply();
     narrow.addEventListener('change', apply);
     return () => narrow.removeEventListener('change', apply);
-  }, []);
+  }, [pairs]);
   return text;
 }
-
-/** Copy for a message that never left. Rioplatense, short, no jargon. */
-const COPY = {
-  undelivered: 'No se envió',
-  dropped: 'Se cortó antes de responder',
-  undeliveredLogin: 'No se envió. Iniciá sesión y lo reenviamos',
-  retry: 'Reintentar',
-  retryAria: 'Reintentar enviar este mensaje',
-} as const;
-
-/** Empty-chat intro under the greeting, then starter chips. */
-const GREETING_BODY = 'Changuito te ayuda a armar tus compras en el supermercado.';
 
 export function Chat() {
   // Same split as WalletWidget: usePollar only mounts inside a real provider.
@@ -112,10 +89,14 @@ function ChatCore({
   sign?: WalletSigner;
 }) {
   const { network } = useNetwork();
+  const lang = useLang();
+  const copy = uiCopy(lang).chat;
+  // `lang` rides along so the agent answers in the language the footer is set
+  // to. Nothing else about the request changes with it.
   const { state, send, retry, stop, loginRequired, clearLoginRequired, resume, reset, currentSessionId } =
-    useChat({ isAuthenticated, address, sign, network });
+    useChat({ isAuthenticated, address, sign, network, lang });
   const [draft, setDraft] = useState('');
-  const placeholder = useComposerPlaceholder();
+  const placeholder = useComposerPlaceholder(lang);
   // The basket the payment modal is open over. A cart, not a block id: the
   // user pays for what a card showed, and that object is the record of it.
   const [paying, setPaying] = useState<{ cart: Cart; handoffUrl?: string } | null>(null);
@@ -209,7 +190,7 @@ function ChatCore({
 
   // Guests at the limit. Signed-in shoppers never match, even if the latch is
   // still true for this render or the free-turn count is already spent.
-  const gateText = loginGateBannerText({ isAuthenticated, loginRequired });
+  const gateText = loginGateBannerText({ isAuthenticated, loginRequired }, lang);
   const gated = gateText !== null;
   const loginCopyVisible =
     loginGateBannerText({ isAuthenticated, loginRequired: true, turnsUsed: FREE_TURNS }) !== null;
@@ -321,7 +302,14 @@ function ChatCore({
               // The soft-limit line is guest copy. Once the shopper is signed
               // in it is not an error, and leaving it in the thread reads as
               // the gate still being shut.
-              if (b.message === LOGIN_REQUIRED_MESSAGE && !loginCopyVisible) return null;
+              // Either language — the line was written in whichever the
+              // footer was set to when the gate answered.
+              if (
+                (b.message === LOGIN_REQUIRED_MESSAGE || b.message === loginRequiredMessage('en')) &&
+                !loginCopyVisible
+              ) {
+                return null;
+              }
               return (
                 <p key={b.id} className="bubble is-error" role="alert">
                   {b.message}
@@ -334,7 +322,10 @@ function ChatCore({
           // Copy first, then the back-and-forth search GIF. The idle PNG is
           // only the reduced-motion fallback (hidden in CSS until then).
           <p className="bubble is-agent thinking" data-testid="search-loading">
-            <span>Buscando en el súper…</span>
+            {/* The Spanish is written out rather than looked up:
+                lib/test/search-loading.test.ts reads this file as text and
+                asserts the sentence sits in this block, before the GIF. */}
+            <span>{lang === 'en' ? copy.searching : 'Buscando en el súper…'}</span>
             <img
               className="thinking-mascot thinking-mascot-motion"
               src="/brand/animacion-busqueda.gif"
@@ -368,7 +359,7 @@ function ChatCore({
             height={48}
           />
           <div className="login-gate-copy">
-            <p className="login-gate-title">Para seguir, iniciá sesión</p>
+            <p className="login-gate-title">{copy.signInLead}</p>
             <p>{gateText}</p>
           </div>
           {openLoginModal ? (
@@ -380,21 +371,19 @@ function ChatCore({
                 trackLoginStart(openLoginModal);
               }}
             >
-              {LOGIN_CTA}
+              {loginCta(lang)}
             </button>
           ) : (
-            <p className="login-gate-muted">El inicio de sesión no está configurado en este build.</p>
+            <p className="login-gate-muted">{copy.loginUnconfigured}</p>
           )}
         </div>
       ) : null}
 
       {readOnly ? (
         <div className="composer composer-closed" data-testid="composer-closed" role="status">
-          <p className="composer-closed-copy">
-            Esta compra ya está cerrada. Empezá un chat nuevo para pedir otra cosa.
-          </p>
+          <p className="composer-closed-copy">{copy.closed}</p>
           <button type="button" className="btn" data-testid="composer-new-chat" onClick={() => newChat?.()}>
-            Nueva compra
+            {copy.newChat}
           </button>
         </div>
       ) : (
@@ -424,12 +413,12 @@ function ChatCore({
           autoFocus
         />
         {state.streaming ? (
-          <button type="button" className="btn btn-ghost" onClick={stop} aria-label="Parar respuesta">
-            Parar
+          <button type="button" className="btn btn-ghost" onClick={stop} aria-label={copy.stopAria}>
+            {copy.stop}
           </button>
         ) : (
           <button type="submit" className="btn" data-testid="composer-send" disabled={!draft.trim() || gated}>
-            Enviar
+            {copy.send}
           </button>
         )}
         {state.streaming ? <TurnProgressLine state={state} /> : null}
@@ -467,11 +456,13 @@ function ChatCore({
  * now: a receipt that re-prices itself when a rate moves is not a receipt.
  */
 function ReceiptCard({ receipt }: { receipt: Receipt }) {
+  const lang = useLang();
+  const copy = uiCopy(lang).chat;
   return (
-    <section className="card receipt" data-testid="receipt" aria-label="Tu compra">
+    <section className="card receipt" data-testid="receipt" aria-label={copy.receiptAria}>
       <header className="receipt-head">
-        <strong>Compra pagada</strong>
-        <time dateTime={new Date(receipt.paidAt).toISOString()}>{paidOn(receipt.paidAt)}</time>
+        <strong>{copy.receiptTitle}</strong>
+        <time dateTime={new Date(receipt.paidAt).toISOString()}>{paidOn(receipt.paidAt, lang)}</time>
       </header>
       <ul className="receipt-lines">
         {receipt.lines.map((l, i) => (
@@ -486,21 +477,19 @@ function ReceiptCard({ receipt }: { receipt: Receipt }) {
       </ul>
       <footer className="receipt-foot">
         <div className="receipt-total">
-          <span>Total</span>
+          <span>{copy.total}</span>
           <strong>{receipt.total}</strong>
         </div>
-        <p className="receipt-ref">
-          Pagaste {receipt.paidDisplay} · pedido {receipt.orderId}
-        </p>
+        <p className="receipt-ref">{copy.paidRef(receipt.paidDisplay, receipt.orderId)}</p>
       </footer>
     </section>
   );
 }
 
 /** The date, in the reader's own words. Empty rather than throwing where Intl is odd. */
-function paidOn(at: number): string {
+function paidOn(at: number, lang: Lang): string {
   try {
-    return new Intl.DateTimeFormat('es-AR', {
+    return new Intl.DateTimeFormat(INTL_LOCALE[lang], {
       day: 'numeric',
       month: 'short',
       hour: '2-digit',
@@ -526,6 +515,7 @@ export function UserBubble({
   canRetry: boolean;
   onRetry: (id: string, text: string) => void;
 }) {
+  const copy = uiCopy(useLang()).chat;
   return (
     <div className="msg-user">
       <p className={block.failed ? 'bubble is-user is-undelivered' : 'bubble is-user'}>{block.text}</p>
@@ -533,10 +523,10 @@ export function UserBubble({
         <div className="msg-failed">
           <span className="msg-failed-note" role="alert">
             {block.failed.reason === 'login'
-              ? COPY.undeliveredLogin
+              ? copy.undeliveredLogin
               : block.failed.reason === 'dropped'
-                ? COPY.dropped
-                : COPY.undelivered}
+                ? copy.dropped
+                : copy.undelivered}
             {/* The why, so "no se envió" is something the user (and a bug
                 report) can act on. The login copy already is the why. */}
             {block.failed.reason !== 'login' && block.failed.message ? (
@@ -548,11 +538,11 @@ export function UserBubble({
               type="button"
               className="btn btn-ghost btn-sm msg-retry"
               data-testid="message-retry"
-              aria-label={COPY.retryAria}
+              aria-label={copy.retryAria}
               onClick={() => onRetry(block.id, block.text)}
             >
               <RetryIcon />
-              {COPY.retry}
+              {copy.retry}
             </button>
           ) : null}
         </div>
@@ -569,6 +559,7 @@ export function UserBubble({
  * the stage changes, which are the part worth hearing.
  */
 export function TurnProgressLine({ state }: { state: ChatState }) {
+  const lang = useLang();
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(startedAt);
   useEffect(() => {
@@ -576,7 +567,7 @@ export function TurnProgressLine({ state }: { state: ChatState }) {
     return () => clearInterval(tick);
   }, []);
 
-  const copy = progressCopy(state, now - startedAt);
+  const copy = progressCopy(state, now - startedAt, lang);
   return (
     <div className="composer-hint turn-progress" data-testid="turn-progress">
       <p className="turn-progress-stage">
@@ -593,13 +584,15 @@ export function TurnProgressLine({ state }: { state: ChatState }) {
 }
 
 function Greeting({ onPick }: { onPick: (text: string) => void }) {
+  const lang = useLang();
+  const copy = uiCopy(lang).chat;
   return (
     <div className="greeting" data-testid="greeting">
-      <h2>Hola 👋</h2>
-      <p className="greeting-body" data-testid="greeting-body">{GREETING_BODY}</p>
-      <p className="greeting-hint">Probá con:</p>
+      <h2>{copy.hi}</h2>
+      <p className="greeting-body" data-testid="greeting-body">{copy.greeting}</p>
+      <p className="greeting-hint">{copy.starterLead}</p>
       <ul className="starters">
-        {STARTERS.map((s) => (
+        {starters(lang).map((s) => (
           <li key={s}>
             <button type="button" className="starter" onClick={() => onPick(s)}>
               {s}

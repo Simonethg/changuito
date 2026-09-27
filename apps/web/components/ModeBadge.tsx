@@ -2,6 +2,7 @@
 
 import type { NetworkId } from '../lib/deployments.ts';
 import { modeCopy } from '../lib/mode-copy.ts';
+import { useLang } from './LangProvider';
 
 /**
  * Modo prueba / modo real, stated rather than offered.
@@ -22,7 +23,7 @@ import { modeCopy } from '../lib/mode-copy.ts';
  * connected one, and a new direct child of `.wallet` flips that selector.
  */
 export function ModeBadge({ network }: { network: NetworkId }) {
-  const mode = modeCopy(network);
+  const mode = modeCopy(network, useLang());
   return (
     <div className="wallet-mode">
       <span className="mode-badge" data-mode={network} data-testid="mode-badge">

@@ -18,8 +18,11 @@
  * follow-up, "no sé", a CPA, a number that might be one — goes to the model,
  * which is what happened before for every message.
  *
- * No imports, so it loads under `node --experimental-strip-types`.
+ * Only a type import, which `--experimental-strip-types` erases outright, so
+ * this still loads with nothing to resolve at runtime.
  */
+
+import type { Lang } from '../lang.ts';
 
 /** Four digits on their own (1414, CP1414, "1414 Día"), or a CPA (C1414ABC). */
 const POSTAL_CODE = /(^|\D)\d{4}(?!\d)|(^|[^A-Za-z])[A-Za-z]\d{4}[A-Za-z]{3}(?![A-Za-z])/;
@@ -33,13 +36,27 @@ export const EARLY_LOCATION_ASK =
   '(Día, Jumbo, Disco o Carrefour). Si no tenés preferencia, te sugiero **Día**, que es el que ' +
   'mejor cobertura tiene. ¿Cuál es tu código postal?';
 
+/**
+ * The same question for a reader who set the footer to English.
+ *
+ * The four store names stay as they are — they are the signs above real
+ * shops in Buenos Aires, and translating them would name places that do not
+ * exist. "Código postal" becomes "postcode" because that is the thing being
+ * asked for, and the model is told in the prompt to keep asking in English.
+ */
+export const EARLY_LOCATION_ASK_EN =
+  'To look up real prices I need your **postcode** and the supermarket you want to shop at ' +
+  '(Día, Jumbo, Disco or Carrefour). If you have no preference I suggest **Día** — it has the ' +
+  'best coverage here. What is your postcode?';
+
 export function earlyLocationAsk(args: {
   hasLocation: boolean;
   /** No message has been exchanged in this conversation yet. */
   firstMessage: boolean;
   text: string;
+  lang?: Lang;
 }): string | null {
   if (args.hasLocation || !args.firstMessage) return null;
   if (mentionsPostalCode(args.text)) return null;
-  return EARLY_LOCATION_ASK;
+  return args.lang === 'en' ? EARLY_LOCATION_ASK_EN : EARLY_LOCATION_ASK;
 }

@@ -8,7 +8,9 @@ import {
   HUMAN_REQUIRED_EVENT,
   type ClientGateDecision,
 } from '../lib/human-gate-ui';
+import { uiCopy } from '../lib/ui-copy.ts';
 import { ReportBug } from './ReportBug';
+import { useLang } from './LangProvider';
 
 declare global {
   interface Window {
@@ -42,21 +44,6 @@ type HumanStatus = { ok?: boolean; mode?: string; siteKey?: string };
  */
 const BUNDLED_SITE_KEY = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '').trim();
 
-const COPY = {
-  checkingTitle: 'Un segundo…',
-  checkingBody: 'Confirmamos que sos una persona antes de armar el súper.',
-  widgetTitle: 'Confirmá que sos una persona',
-  widgetBody: 'Es un paso corto. Después podés armar el súper.',
-  blockedTitle: 'Hace falta una verificación',
-  blockedBody: 'Ahora no podemos confirmar que sos una persona. Reintentá en un rato.',
-  retry: 'Reintentar',
-  startFailed: 'No pudimos iniciar la verificación. Reintentá.',
-  widgetFailed: 'La verificación falló. Probá de nuevo.',
-  widgetExpired: 'La verificación venció. Probá de nuevo.',
-  cookieMissing: 'La verificación no quedó guardada en este navegador. Probá de nuevo.',
-  verifyFailed: 'No pudimos verificar que sos una persona.',
-  stillNeeded: 'Confirmá que sos una persona para seguir.',
-} as const;
 
 async function fetchStatus(): Promise<HumanStatus> {
   const res = await fetch('/api/human', {
@@ -98,6 +85,9 @@ export function HumanGate({
   children: ReactNode;
   siteKey?: string;
 }) {
+  // Was a module constant. It follows the language now, and every use of it is
+  // inside this component, so a local of the same name is the whole change.
+  const COPY = uiCopy(useLang()).gate;
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needWidget, setNeedWidget] = useState(false);

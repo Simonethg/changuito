@@ -2,6 +2,7 @@ import type { Cart, Product } from '@changuito/mcp/types';
 import type { SessionSnapshot } from '@changuito/mcp/session';
 
 import type { NetworkId } from './deployments.ts';
+import type { Lang } from './lang.ts';
 
 /**
  * The wire between the agent and the browser.
@@ -69,6 +70,13 @@ export interface ChatRequest {
    * which is the mode that cannot spend anything.
    */
   network?: NetworkId;
+  /**
+   * Which language the footer is set to. The agent's reply language, and
+   * nothing else — the route's own refusals stay Spanish, because the MCP
+   * server and the agent share them and neither reads a cookie from this
+   * browser. Anything unknown lands on the default.
+   */
+  lang?: Lang;
 }
 
 export const SSE_HEADERS: Record<string, string> = {

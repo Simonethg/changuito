@@ -1,5 +1,6 @@
 import type { OrderStatus } from './db.ts';
-import { PREVIEW_MASTHEAD } from './mode-copy.ts';
+import { DEFAULT_LANG, INTL_LOCALE, type Lang } from './lang.ts';
+import { PREVIEW_MASTHEAD, PREVIEW_MASTHEAD_EN } from './mode-copy.ts';
 
 /**
  * The words on the Mis compras tab of the profile, and the two numbers on
@@ -142,15 +143,30 @@ export const PURCHASES_COPY: readonly string[] = [
   ...Object.values(KEPT_CARD),
 ];
 
-const ARS = new Intl.NumberFormat('es-AR', {
-  style: 'currency',
-  currency: 'ARS',
-  minimumFractionDigits: 2,
-});
+/**
+ * Pesos, grouped the way the reader groups numbers.
+ *
+ * The currency never changes — the shopper is buying in Argentina in either
+ * language — but the separators do, because "$12.345,67" read as English is off
+ * by a factor of a hundred thousand. Both formatters are built once, at module
+ * load, the way the single one always was.
+ */
+const ARS: Record<Lang, Intl.NumberFormat> = {
+  es: new Intl.NumberFormat(INTL_LOCALE.es, {
+    style: 'currency',
+    currency: 'ARS',
+    minimumFractionDigits: 2,
+  }),
+  en: new Intl.NumberFormat(INTL_LOCALE.en, {
+    style: 'currency',
+    currency: 'ARS',
+    minimumFractionDigits: 2,
+  }),
+};
 
 /** Centavos as the shopper read them. */
-export function pesos(centavos: number): string {
-  return ARS.format(centavos / 100);
+export function pesos(centavos: number, lang: Lang = DEFAULT_LANG): string {
+  return ARS[lang].format(centavos / 100);
 }
 
 /**
@@ -160,14 +176,97 @@ export function pesos(centavos: number): string {
  * runtimes and "$US 12,34" on others; this is a fallback and it should not
  * be the interesting part of the line.
  */
-export function dollars(cents: number): string {
-  return `US$ ${(cents / 100).toFixed(2).replace('.', ',')}`;
+export function dollars(cents: number, lang: Lang = DEFAULT_LANG): string {
+  const figure = (cents / 100).toFixed(2);
+  return `US$ ${lang === 'en' ? figure : figure.replace('.', ',')}`;
 }
 
-const DAY = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short', year: 'numeric' });
+const DAY: Record<Lang, Intl.DateTimeFormat> = {
+  es: new Intl.DateTimeFormat(INTL_LOCALE.es, { day: 'numeric', month: 'short', year: 'numeric' }),
+  en: new Intl.DateTimeFormat(INTL_LOCALE.en, { day: 'numeric', month: 'short', year: 'numeric' }),
+};
 
 /** An ISO string from the API, as a date. Invalid input reads as empty. */
-export function purchaseDate(iso: string): string {
+export function purchaseDate(iso: string, lang: Lang = DEFAULT_LANG): string {
   const at = new Date(iso);
-  return Number.isNaN(at.getTime()) ? '' : DAY.format(at);
+  return Number.isNaN(at.getTime()) ? '' : DAY[lang].format(at);
+}
+
+/* ------------------------------------------------------------------------- *
+ * English
+ *
+ * `PURCHASES`, `KEPT_CARD`, `ORDER_STATUS` and `PURCHASES_COPY` above are the
+ * Spanish originals and do not move — `lib/test/orders-copy.test.ts` reads them
+ * by name and asserts the voseo, the retire warning word for word, and that
+ * `paid` and `carded` read alike. Every rule that test encodes is a rule about
+ * the *product*, not about Spanish, so the English below keeps all of them:
+ * `none` still does not read as an error, the retire warning still says both
+ * that it cannot be undone and where the money goes, the two answers still say
+ * yes and no rather than OK and Cancel, `frozen` still promises nothing, and
+ * `paid` and `carded` are still the same word.
+ * ------------------------------------------------------------------------- */
+
+const PURCHASES_EN: PurchasesCopy = {
+  title: 'My purchases',
+  lead: "What you've bought with Changuito, from any device.",
+  guestTitle: 'Nothing is saved here',
+  guestBody:
+    "In practice mode we save nothing: you can try the whole payment and no record is kept. Sign in with your account and your purchases will be here.",
+  guestAction: PREVIEW_MASTHEAD_EN.action,
+  signLead:
+    "If it's been a while, we may ask you for a signature to confirm it's you. It's free and it doesn't move any money.",
+  loadCta: 'See my purchases',
+  loading: 'Looking for your purchases…',
+  signRefused: "We couldn't confirm it's you. Try again.",
+  error: "We couldn't fetch your purchases just now. Try again in a bit.",
+  empty: "You haven't bought anything with this account yet.",
+  codeLabel: 'Code',
+  cardNote: 'Paid with a card we gave you.',
+};
+
+const KEPT_CARD_EN: KeptCardCopy = {
+  title: 'My card',
+  lead: "There's one and it's yours. Every purchase you make tops up its balance.",
+  loading: 'Looking for your card…',
+  // Still not an error, and still says the first purchase makes one.
+  none: "You don't have one yet. You can create it here, or it appears on its own with your first purchase.",
+  createCta: 'Create my card',
+  creating: 'Creating your card…',
+  createError: "We couldn't create your card just now. Try again in a bit.",
+  error: "We couldn't read your card just now. Try again in a bit.",
+  balanceLabel: 'Balance',
+  // Says it plainly and offers nothing, because there is no unfreeze.
+  frozen: "It's blocked and cannot be used for now.",
+  retireCta: 'Close it',
+  // Both halves: that it cannot be undone, and where the balance goes.
+  retireWarn:
+    'It closes for good and we return the balance to your account. This cannot be undone.',
+  // Yes and no in that many words, never OK and Cancel.
+  retireConfirm: 'Yes, close it',
+  retireCancel: 'No, keep it',
+  retiring: 'Closing…',
+  retired: "Done. We closed it and returned the balance.",
+  retireError: "We couldn't close it just now. Try again in a bit.",
+};
+
+const ORDER_STATUS_EN: Record<OrderStatus, string> = {
+  // "Unpaid", not "Waiting": an order can sit here for ever.
+  quoted: 'Unpaid',
+  // The same word for both, because the card is machinery.
+  paid: 'Paid',
+  carded: 'Paid',
+  done: 'Complete',
+  failed: "Didn't go through",
+};
+
+export function purchasesCopy(lang: Lang): PurchasesCopy {
+  return lang === 'en' ? PURCHASES_EN : PURCHASES;
+}
+
+export function keptCardCopy(lang: Lang): KeptCardCopy {
+  return lang === 'en' ? KEPT_CARD_EN : KEPT_CARD;
+}
+
+export function orderStatus(lang: Lang): Record<OrderStatus, string> {
+  return lang === 'en' ? ORDER_STATUS_EN : ORDER_STATUS;
 }

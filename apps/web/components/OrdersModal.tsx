@@ -1,6 +1,7 @@
 'use client';
 
-import { PURCHASES } from '../lib/orders-copy.ts';
+import { purchasesCopy } from '../lib/orders-copy.ts';
+import { useLang } from './LangProvider';
 import { Modal } from './Modal';
 import { Purchases } from './Purchases';
 
@@ -19,7 +20,7 @@ import { Purchases } from './Purchases';
  */
 export function OrdersModal({ onClose }: { onClose: () => void }) {
   return (
-    <Modal title={PURCHASES.title} onClose={onClose} className="modal-orders" testId="orders-modal">
+    <Modal title={purchasesCopy(useLang()).title} onClose={onClose} className="modal-orders" testId="orders-modal">
       <Purchases embedded />
     </Modal>
   );

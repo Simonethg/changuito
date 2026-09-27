@@ -19,7 +19,8 @@ import {
 import type { StoredChat } from './chat-store.ts';
 import type { NetworkId } from './deployments.ts';
 import { notifyHumanRequired, SOLO_HUMANOS } from './human-gate-ui';
-import { LOGIN_REQUIRED, LOGIN_REQUIRED_MESSAGE } from './login-constants';
+import { DEFAULT_LANG, inLang, type Lang } from './lang.ts';
+import { LOGIN_REQUIRED, LOGIN_REQUIRED_MESSAGE, loginRequiredMessage } from './login-constants';
 import { parseEvents, type ChatRequest } from './protocol';
 import { ensureUserCookie } from './session-login';
 import type { WalletSigner } from './wallet-proof.ts';
@@ -48,9 +49,52 @@ export interface UseChatAuth {
   address?: string | null;
   /** Signs the login proof `chg_user` needs. Absent without Pollar. */
   sign?: WalletSigner;
+  /**
+   * Which language the footer is set to. Sent with the turn so the agent
+   * answers in it, and used for the sentences this hook writes itself.
+   */
+  lang?: Lang;
 }
 
-const SESSION_SAVE_FAILED = 'No pude guardar la sesión. Probá de nuevo.';
+/**
+ * The four failures this hook reports, in both languages.
+ *
+ * Here rather than in `ui-copy.ts` because they are not copy a component
+ * renders — they go into the transcript as error blocks, and one of them
+ * (`LOGIN_REQUIRED_MESSAGE`) is matched *by value* by `omitErrorMessage` when a
+ * login lands. So the Spanish keeps coming from the constant it has always come
+ * from, and the English sits beside it.
+ */
+const NET = {
+  sessionSaveFailed: {
+    es: 'No pude guardar la sesión. Probá de nuevo.',
+    en: 'I could not save the session. Try again.',
+  },
+  status: {
+    es: (code: number) => `El servidor respondió ${code}.`,
+    en: (code: number) => `The server answered ${code}.`,
+  },
+  cutOut: {
+    es: 'Se cortó la conexión antes de terminar. Probá de nuevo.',
+    en: 'The connection dropped before it finished. Try again.',
+  },
+  offline: {
+    es: 'No pudimos hablar con el servidor. Revisá tu conexión y reintentá.',
+    en: 'We could not reach the server. Check your connection and try again.',
+  },
+} as const;
+
+/**
+ * Drop the soft-limit line, in whichever language it was written in.
+ *
+ * The gate's sentence goes into the transcript as an error block, and once the
+ * shopper is signed in it is no longer true. `omitErrorMessage` matches by
+ * value and the value follows the footer, so both are passed rather than
+ * teaching the pure store about a language it has no other use for.
+ */
+function omitLoginLine(state: ChatState): ChatState {
+  return omitErrorMessage(omitErrorMessage(state, LOGIN_REQUIRED_MESSAGE), loginRequiredMessage('en'));
+}
 
 export function useChat(auth?: UseChatAuth) {
   const [state, setState] = useState<ChatState>(initialState);
@@ -69,7 +113,7 @@ export function useChat(auth?: UseChatAuth) {
 
   const clearLoginRequired = useCallback(() => {
     setLoginRequired(false);
-    setState((s) => omitErrorMessage(s, LOGIN_REQUIRED_MESSAGE));
+    setState((s) => omitLoginLine(s));
   }, []);
 
   /**
@@ -91,6 +135,7 @@ export function useChat(auth?: UseChatAuth) {
         message: text,
         snapshot: snapshot.current,
         ...(authRef.current.network ? { network: authRef.current.network } : {}),
+        ...(authRef.current.lang ? { lang: authRef.current.lang } : {}),
       };
       return fetch('/api/chat', {
         method: 'POST',
@@ -102,8 +147,13 @@ export function useChat(auth?: UseChatAuth) {
     };
 
     const stopped = () => {
-      setState((s) => omitErrorMessage(endTurn(s), LOGIN_REQUIRED_MESSAGE));
+      setState((s) => omitLoginLine(endTurn(s)));
     };
+
+    // Read once per turn, like the rest of `authRef`: the language cannot
+    // change halfway through a request, and reading it again after an await
+    // would let a toggle flip pick the other half of a sentence.
+    const lang = authRef.current.lang ?? DEFAULT_LANG;
 
     try {
       let res = await post();
@@ -114,7 +164,7 @@ export function useChat(auth?: UseChatAuth) {
         // Nothing was received either way — every one of these checks runs
         // before the route opens an MCP session or writes history — so the
         // message is still the user's to re-send.
-        let message = `El servidor respondió ${res.status}.`;
+        let message = inLang(lang, NET.status)(res.status);
         let reason: SendFailure['reason'] = 'network';
         try {
           const json = (await res.json()) as { error?: string; message?: string };
@@ -148,14 +198,20 @@ export function useChat(auth?: UseChatAuth) {
               }
               track('login_fail', { code: 'session' });
               setState((s) =>
-                omitErrorMessage(failTurn(s, { reason: 'network', message: SESSION_SAVE_FAILED }), LOGIN_REQUIRED_MESSAGE),
+                omitLoginLine(failTurn(s, { reason: 'network', message: inLang(lang, NET.sessionSaveFailed) })),
               );
               return;
             }
             setLoginRequired(true);
             reason = 'login';
-            message = json.message ?? LOGIN_REQUIRED_MESSAGE;
-          } else if (json.message) {
+            // The route's own sentence, but only for the reader who can use
+            // it: `/api/chat` answers in Spanish and always will, since the MCP
+            // server and the agent share these routes and neither reads a
+            // cookie from this browser. In English the client's own copy wins —
+            // less specific, and readable. CheckoutModal, CardPanel and
+            // Purchases do the same.
+            message = (lang === 'es' ? json.message : null) ?? loginRequiredMessage(lang);
+          } else if (json.message && lang === 'es') {
             message = json.message;
           }
         } catch {
@@ -181,7 +237,7 @@ export function useChat(auth?: UseChatAuth) {
       // that message counts as sent depends on how far it got, which is what
       // failTurn reads off the transcript.
       setState((s) =>
-        failTurn(s, { reason: 'network', message: 'Se cortó la conexión antes de terminar. Probá de nuevo.' }),
+        failTurn(s, { reason: 'network', message: inLang(lang, NET.cutOut) }),
       );
     } catch (err) {
       if (controller.signal.aborted) {
@@ -195,7 +251,7 @@ export function useChat(auth?: UseChatAuth) {
       // and names nothing the user can do. The console keeps it for a report.
       console.warn('[chat] request failed:', err);
       setState((s) =>
-        failTurn(s, { reason: 'network', message: 'No pudimos hablar con el servidor. Revisá tu conexión y reintentá.' }),
+        failTurn(s, { reason: 'network', message: inLang(lang, NET.offline) }),
       );
     }
   }, []);
@@ -226,7 +282,7 @@ export function useChat(auth?: UseChatAuth) {
       sessionId.current ||= crypto.randomUUID();
       await begin(text, () => {
         setState((s) => {
-          const base = authRef.current.isAuthenticated ? omitErrorMessage(s, LOGIN_REQUIRED_MESSAGE) : s;
+          const base = authRef.current.isAuthenticated ? omitLoginLine(s) : s;
           return base.streaming ? base : sendUser(base, text);
         });
       });

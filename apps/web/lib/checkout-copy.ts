@@ -14,6 +14,7 @@
  * claiming more than the code behind it knows.
  */
 import { type NetworkId } from './deployments.ts';
+import { DEFAULT_LANG, type Lang } from './lang.ts';
 
 export interface CheckoutCopy {
   /** The dialog's own name. */
@@ -226,6 +227,135 @@ const REAL: CheckoutCopy = {
 
 export const CHECKOUT_MODES = [PRUEBA, REAL] as const;
 
-export function checkoutCopy(net: NetworkId): CheckoutCopy {
+/**
+ * The flow's words. `lang` is optional and defaults to Spanish, so every
+ * existing caller — and the copy test — keeps the answer it had.
+ */
+export function checkoutCopy(net: NetworkId, lang: Lang = DEFAULT_LANG): CheckoutCopy {
+  if (lang === 'en') return MODES_EN[net];
   return net === 'mainnet' ? REAL : PRUEBA;
 }
+
+/* ------------------------------------------------------------------------- *
+ * English
+ *
+ * `CHECKOUT_MODES` and `checkoutCopy(net)` above still answer in Spanish, and
+ * `lib/test/checkout-copy.test.ts` still reads them. Every rule that file
+ * encodes is a rule about what the app may claim, not about Spanish, so the
+ * English below keeps all of them — and they are the interesting part of this
+ * translation, not the sentences:
+ *
+ * - `verified` says the **cart closed**, never that the payment was confirmed.
+ *   The store's public API cannot show us an order.
+ * - `unverified` never reads as "you did not pay".
+ * - `openTabNote` reads as an equal path, not a failure.
+ * - `memoNote` says the code is not optional.
+ * - `cardLead` names the shopper's own card first, in both modes, because the
+ *   frame takes it for free and a deployment with no card provider still works.
+ * - `cardNote` promises the numbers are not kept, and **only the practice mode**
+ *   says the card dies with the window — in real mode it does not, and a shopper
+ *   who believed it would not come back for a card that still has money.
+ * - `cardFunded` is this basket's amount in practice and the card's *current
+ *   balance* in real mode, because a kept card carries change.
+ * - The one-press pay words exist only in the mode where the money is the
+ *   shopper's, and the demo-pay words only where it is ours. Empty, not absent:
+ *   the panels key off the emptiness.
+ * - `refundNote` and `failed` say a real refund is done **by hand**. There is no
+ *   outbound payment path in this deployment and no key to sign one with.
+ * ------------------------------------------------------------------------- */
+
+const COMMON_EN = {
+  title: 'Finish your purchase',
+  amountLabel: 'Amount',
+  addressLabel: 'Address',
+  memoLabel: 'Code',
+  memoNote: "It is required: it's what makes the amount land on this purchase and not another one.",
+  waiting: 'Waiting for it to arrive…',
+  confirmed: "It's here. You can carry on.",
+  demoPayCta: '',
+  demoPayWorking: '',
+  demoPayError: '',
+  walletPayCta: '',
+  walletPayWorking: '',
+  walletPayLead: '',
+  walletPayNote: '',
+  walletPayError: '',
+  walletPayShort: '',
+  checkoutTitle: 'Step 2: pay at the store',
+  checkoutLead: "This is the store's own page, exactly as it is. We cannot see what happens inside it.",
+  loginLead:
+    "To pay you need to sign in to your store account. It opens in a separate tab, on the store's own page, with the address bar in view.",
+  loginCta: 'Sign in to my store account',
+  identified: "You're recognised by the store.",
+  openTab: 'Open in a tab',
+  openTabNote: 'Works just as well. Some browsers will not let you sign in from in here.',
+  paidCta: "I've paid",
+  checking: 'Checking with the store…',
+  verified: 'The store confirms the cart was closed.',
+  unverified:
+    'The store still shows the cart as open. If you have already paid, carry on and check it in your store account.',
+  unreachable: "We couldn't check with the store just now.",
+  cardMinting: 'Creating…',
+  cardAgainLead: '',
+  cardAgainCta: '',
+  cardNumberLabel: 'Number',
+  cardExpiryLabel: 'Expires',
+  cardCvvLabel: 'Security code',
+  cardError: "We couldn't create the card.",
+  cardFallback: "You can pay with your own in the store's form.",
+  otpTitle: 'The code the store asks you for',
+  otpLabel: 'Code',
+  otpWaiting: 'If the store asks for a code to confirm, it appears here.',
+  otpLead: "Put it in the store's form before it expires.",
+  otpExpired: "That code expired. Ask for a new one from the store's form and wait here.",
+} as const;
+
+const PRACTICE_EN: CheckoutCopy = {
+  ...COMMON_EN,
+  depositTitle: 'Step 1: the amount',
+  depositLead: "This is practice and we're paying: press the button and we'll carry on.",
+  demoPayCta: 'Pay with our money',
+  demoPayWorking: 'Paying…',
+  demoPayError: "We couldn't make the practice payment. Try again.",
+  // The only mode allowed to say the card dies with the window, because here
+  // it does: no session, so no owner, so `keepsOneCard` is false.
+  cardTitle: 'Single-use card',
+  cardLead:
+    "You can pay with your usual card in the store's form. Or, if you'd rather not enter it, we'll give you one that works once and only for this purchase.",
+  cardCta: 'Create a card',
+  cardNote:
+    "Copy it into the store's form. We don't save it anywhere: when you close this window, the card closes with it.",
+  cardFunded: "It holds exactly this purchase's amount and cannot be used for anything else.",
+  refundNote: "This is practice, so no real money moves.",
+  failed: "Something went wrong. Since this is practice, there's nothing to refund.",
+};
+
+const LIVE_EN: CheckoutCopy = {
+  ...COMMON_EN,
+  depositTitle: 'Step 1: the amount',
+  depositLead:
+    'It comes out of the dollars in your account. If you keep them somewhere else, you can also send them by hand.',
+  walletPayCta: 'Pay with my dollars',
+  walletPayWorking: 'Paying…',
+  walletPayLead: "We take it off your balance. There's nothing to copy.",
+  walletPayNote: 'Or send it yourself, from wherever you keep your dollars:',
+  walletPayError: "We couldn't make the payment. Try again.",
+  // Points nowhere: there is no funding control in this dialog.
+  walletPayShort: "Your balance isn't enough for this payment.",
+  cardTitle: 'Your card for the store',
+  cardLead:
+    "You can pay with your usual card in the store's form. Or, if you'd rather not enter it, we'll give you one of your own that you use on every purchase.",
+  cardCta: 'Create my card',
+  cardAgainLead: "It's the same one as always: we add this purchase's amount and you carry on with it.",
+  cardAgainCta: 'Use my card',
+  // Not "closes with the window": this one does not. The numbers still live
+  // nowhere, which is the promise this sentence keeps without overclaiming.
+  cardNote:
+    "Copy it into the store's form. We don't save it anywhere: every time you need it we show it to you again.",
+  // The balance, not the basket. A kept card can carry change.
+  cardFunded: "That's the balance it has right now, and it only works at the store.",
+  refundNote: "If something goes wrong we refund the amount by hand. It isn't automatic.",
+  failed: "We couldn't complete the purchase. Write to us and we'll refund the amount by hand.",
+};
+
+const MODES_EN: Record<NetworkId, CheckoutCopy> = { testnet: PRACTICE_EN, mainnet: LIVE_EN };

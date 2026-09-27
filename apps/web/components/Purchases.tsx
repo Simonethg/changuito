@@ -5,10 +5,13 @@ import { useCallback, useState } from 'react';
 
 import type { OrderLine } from '../app/api/orders/route.ts';
 import { track, trackLoginStart } from '../lib/analytics';
-import { dollars, ORDER_STATUS, pesos, purchaseDate, PURCHASES } from '../lib/orders-copy.ts';
+import { DEFAULT_LANG, type Lang } from '../lib/lang.ts';
+import { dollars, orderStatus, pesos, purchaseDate, purchasesCopy } from '../lib/orders-copy.ts';
 import { pollarEnabled } from '../lib/pollar.ts';
 import { useWalletSigner } from '../lib/use-wallet-signer.ts';
 import { signWalletProof } from '../lib/wallet-proof.ts';
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
 import { useNetwork } from './NetworkProvider';
 
 /**
@@ -61,15 +64,20 @@ export function Purchases({ embedded = false }: { embedded?: boolean } = {}) {
 }
 
 function NoWallet({ embedded }: { embedded: boolean }) {
+  const lang = useLang();
+  const ui = uiCopy(lang);
   return (
     <section className="purchases">
-      {embedded ? null : <h2 className="purchases-title">{PURCHASES.title}</h2>}
-      <p className="purchases-lead">Falta configurar el inicio de sesión en esta instalación.</p>
+      {embedded ? null : <h2 className="purchases-title">{purchasesCopy(lang).title}</h2>}
+      <p className="purchases-lead">{ui.purchasesUnconfigured}</p>
     </section>
   );
 }
 
 function WithWallet({ embedded }: { embedded: boolean }) {
+  const lang = useLang();
+  const copy = purchasesCopy(lang);
+  const status = orderStatus(lang);
   const { wallet, isAuthenticated, openLoginModal } = usePollar();
   const { network } = useNetwork();
   const sign = useWalletSigner();
@@ -100,44 +108,44 @@ function WithWallet({ embedded }: { embedded: boolean }) {
         // its own sentence rather than the generic failure.
         const proof = await signWalletProof(sign, 'orders', address);
         if (!proof) {
-          setError(PURCHASES.signRefused);
+          setError(copy.signRefused);
           return;
         }
         res = await ask(proof);
       }
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(said(body) ?? PURCHASES.error);
+        setError(said(body, lang) ?? copy.error);
         return;
       }
       const list = Array.isArray(body?.orders) ? (body.orders as OrderLine[]) : [];
       setOrders(list);
       track('purchases_read', { count: String(list.length) });
     } catch {
-      setError(PURCHASES.error);
+      setError(copy.error);
     } finally {
       setLoading(false);
     }
-  }, [address, loading, network, sign]);
+  }, [address, copy, lang, loading, network, sign]);
 
   return (
     <section className="purchases" data-testid="purchases">
-      {embedded ? null : <h2 className="purchases-title">{PURCHASES.title}</h2>}
+      {embedded ? null : <h2 className="purchases-title">{copy.title}</h2>}
 
       {!address ? (
         <div className="purchases-empty" data-testid="purchases-guest">
-          <h3 className="purchases-sub">{PURCHASES.guestTitle}</h3>
-          <p className="purchases-lead">{PURCHASES.guestBody}</p>
+          <h3 className="purchases-sub">{copy.guestTitle}</h3>
+          <p className="purchases-lead">{copy.guestBody}</p>
           <button type="button" className="btn" onClick={() => trackLoginStart(openLoginModal)}>
-            {PURCHASES.guestAction}
+            {copy.guestAction}
           </button>
         </div>
       ) : (
         <>
-          <p className="purchases-lead">{PURCHASES.lead}</p>
+          <p className="purchases-lead">{copy.lead}</p>
           {orders === null ? (
             <div className="purchases-empty">
-              <p className="purchases-lead">{PURCHASES.signLead}</p>
+              <p className="purchases-lead">{copy.signLead}</p>
               <button
                 type="button"
                 className="btn"
@@ -145,12 +153,12 @@ function WithWallet({ embedded }: { embedded: boolean }) {
                 onClick={() => void load()}
                 disabled={loading}
               >
-                {loading ? PURCHASES.loading : PURCHASES.loadCta}
+                {loading ? copy.loading : copy.loadCta}
               </button>
             </div>
           ) : orders.length === 0 ? (
             <p className="purchases-lead" data-testid="purchases-none">
-              {PURCHASES.empty}
+              {copy.empty}
             </p>
           ) : (
             <ul className="purchases-list" data-testid="purchases-list">
@@ -161,19 +169,19 @@ function WithWallet({ embedded }: { embedded: boolean }) {
                         were sent: the rate moves between the two, and the
                         figure a person remembers is the one they were shown. */}
                     <strong className="purchase-amount">
-                      {o.arsQuoted === null ? dollars(o.amountCents) : pesos(o.arsQuoted)}
+                      {o.arsQuoted === null ? dollars(o.amountCents, lang) : pesos(o.arsQuoted, lang)}
                     </strong>
                     <span className="purchase-status" data-status={o.status}>
-                      {ORDER_STATUS[o.status]}
+                      {status[o.status]}
                     </span>
                   </div>
                   <p className="purchase-meta">
-                    <span>{purchaseDate(o.createdAt)}</span>
+                    <span>{purchaseDate(o.createdAt, lang)}</span>
                     <span className="purchase-code">
-                      {PURCHASES.codeLabel} <code>{o.memo}</code>
+                      {copy.codeLabel} <code>{o.memo}</code>
                     </span>
                   </p>
-                  {o.hasCard ? <p className="purchase-note">{PURCHASES.cardNote}</p> : null}
+                  {o.hasCard ? <p className="purchase-note">{copy.cardNote}</p> : null}
                 </li>
               ))}
             </ul>
@@ -195,8 +203,17 @@ function WithWallet({ embedded }: { embedded: boolean }) {
  * first, then `error`: the routes write the code for the logs in one and the
  * sentence for a person in the other, and the ones without a `message` are
  * already sentences.
+ *
+ * Except in English, where it says nothing. The API routes answer in Spanish
+ * and always will — they are shared with the MCP server and with the agent,
+ * and neither of those reads a cookie from this browser. Preferring the
+ * server's sentence would hand a Spanish paragraph to the one reader who
+ * cannot parse it, so the caller's own fallback wins instead: less specific,
+ * and readable. The day a route learns to answer in two languages this
+ * parameter goes away.
  */
-function said(body: unknown): string | null {
+function said(body: unknown, lang: Lang = DEFAULT_LANG): string | null {
+  if (lang === 'en') return null;
   const b = (body ?? {}) as { message?: unknown; error?: unknown };
   if (typeof b.message === 'string') return b.message;
   if (typeof b.error === 'string') return sentence(b.error);

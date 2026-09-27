@@ -1,6 +1,11 @@
+'use client';
+
 import type { Cart } from '@changuito/mcp/types';
 
 import { RETAILER_NAMES } from '../lib/retailers.ts';
+
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
 
 /**
  * The basket as the store itself reports it, including its complaints.
@@ -18,12 +23,13 @@ export function CartCard({
   handoffUrl?: string;
   onPay?: (cart: Cart) => void;
 }) {
+  const copy = uiCopy(useLang()).cart;
   const unavailable = cart.lines.filter((l) => !l.available);
   const store = RETAILER_NAMES[cart.retailer] ?? cart.retailer;
   return (
-    <section className="cart" aria-label="Carrito">
+    <section className="cart" aria-label={copy.aria}>
       <header className="cart-head">
-        <span className="cart-title">Tu changuito</span>
+        <span className="cart-title">{copy.title}</span>
         <span className="cart-retailer">{store}</span>
       </header>
 
@@ -47,25 +53,23 @@ export function CartCard({
 
       <footer className="cart-foot">
         <div className="cart-total">
-          <span>Total</span>
+          <span>{copy.total}</span>
           <strong>{cart.total.display}</strong>
         </div>
         {unavailable.length > 0 ? (
           <p className="cart-warn">
-            {unavailable.length === 1
-              ? '1 producto quedó sin stock.'
-              : `${unavailable.length} productos quedaron sin stock.`}
+            {unavailable.length === 1 ? copy.oosOne : copy.oosMany(unavailable.length)}
           </p>
         ) : null}
         <div className="cart-actions">
           {onPay ? (
             <button type="button" className="btn btn-pay" onClick={() => onPay(cart)}>
-              Pagá con USDC
+              {copy.payCta}
             </button>
           ) : null}
           {handoffUrl ? (
             <a className="btn btn-ghost" href={handoffUrl} target="_blank" rel="noopener noreferrer">
-              Abrir en {store}
+              {copy.openAt(store)}
             </a>
           ) : null}
         </div>

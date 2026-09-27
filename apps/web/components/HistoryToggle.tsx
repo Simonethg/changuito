@@ -1,5 +1,7 @@
 'use client';
 
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
 import { useShop } from './ShopProvider';
 
 /**
@@ -31,7 +33,7 @@ export function HistoryToggle() {
       type="button"
       className="btn btn-ghost deck-drawer-toggle"
       data-testid="open-history"
-      aria-label="Tus conversaciones"
+      aria-label={uiCopy(useLang()).history.toggleAria}
       aria-expanded={shop.historyOpen}
       onClick={() => shop.setHistoryOpen(true)}
     >

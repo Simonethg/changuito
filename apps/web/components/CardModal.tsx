@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 
-import { KEPT_CARD } from '../lib/orders-copy.ts';
+import { keptCardCopy } from '../lib/orders-copy.ts';
+import { uiCopy } from '../lib/ui-copy.ts';
 import { useKeptCard } from '../lib/use-kept-card.ts';
 import type { NetworkId } from '../lib/deployments.ts';
 import type { WalletSigner } from '../lib/wallet-proof.ts';
 import { CardFace } from './CardFace';
+import { useLang } from './LangProvider';
 import { Modal } from './Modal';
 
 /**
@@ -52,6 +54,9 @@ export function CardModal({
   sign: WalletSigner;
   onClose: () => void;
 }) {
+  const lang = useLang();
+  const copy = keptCardCopy(lang);
+  const labels = uiCopy(lang).card;
   const { card, frozen, busy, error, gone, load, create, retire } = useKeptCard(address, network, sign);
   const [confirming, setConfirming] = useState(false);
 
@@ -63,36 +68,36 @@ export function CardModal({
   }, [load]);
 
   return (
-    <Modal title={KEPT_CARD.title} onClose={onClose} className="modal-card" testId="card-modal">
+    <Modal title={copy.title} onClose={onClose} className="modal-card" testId="card-modal">
       {card === undefined && busy ? (
         <p className="purchases-lead" role="status">
-          {KEPT_CARD.loading}
+          {copy.loading}
         </p>
       ) : null}
 
       {card ? (
         <>
-          <p className="purchases-lead">{KEPT_CARD.lead}</p>
+          <p className="purchases-lead">{copy.lead}</p>
           <CardFace
             card={card}
-            labels={{ number: 'Número', expiry: 'Vence', cvv: 'CVV' }}
+            labels={labels}
             idPrefix="card-modal"
           />
           <dl className="ck-fields">
             <div>
-              <dt>{KEPT_CARD.balanceLabel}</dt>
+              <dt>{copy.balanceLabel}</dt>
               <dd data-testid="card-modal-balance">{card.fundedDisplay}</dd>
             </div>
           </dl>
           {frozen ? (
             <p className="pay-warn" role="status" data-testid="card-modal-frozen">
-              {KEPT_CARD.frozen}
+              {copy.frozen}
             </p>
           ) : null}
 
           {confirming ? (
             <div className="card-retire-confirm" data-testid="card-modal-confirm">
-              <p className="pay-warn">{KEPT_CARD.retireWarn}</p>
+              <p className="pay-warn">{copy.retireWarn}</p>
               <button
                 type="button"
                 className="btn btn-warn"
@@ -100,7 +105,7 @@ export function CardModal({
                 onClick={() => void retire()}
                 disabled={busy}
               >
-                {busy ? KEPT_CARD.retiring : KEPT_CARD.retireConfirm}
+                {busy ? copy.retiring : copy.retireConfirm}
               </button>
               <button
                 type="button"
@@ -108,7 +113,7 @@ export function CardModal({
                 onClick={() => setConfirming(false)}
                 disabled={busy}
               >
-                {KEPT_CARD.retireCancel}
+                {copy.retireCancel}
               </button>
             </div>
           ) : (
@@ -118,7 +123,7 @@ export function CardModal({
               data-testid="card-modal-retire"
               onClick={() => setConfirming(true)}
             >
-              {KEPT_CARD.retireCta}
+              {copy.retireCta}
             </button>
           )}
         </>
@@ -127,7 +132,7 @@ export function CardModal({
       {card === null ? (
         <>
           <p className="purchases-lead" data-testid="card-modal-none">
-            {gone ? KEPT_CARD.retired : KEPT_CARD.none}
+            {gone ? copy.retired : copy.none}
           </p>
           <button
             type="button"
@@ -136,7 +141,7 @@ export function CardModal({
             onClick={() => void create()}
             disabled={busy}
           >
-            {busy ? KEPT_CARD.creating : KEPT_CARD.createCta}
+            {busy ? copy.creating : copy.createCta}
           </button>
         </>
       ) : null}

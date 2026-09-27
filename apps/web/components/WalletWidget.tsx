@@ -4,7 +4,9 @@ import { usePollar } from '@pollar/react';
 import { useEffect, useRef, useState } from 'react';
 
 import { track, trackLoginStart } from '../lib/analytics';
-import { modeCopy, PREVIEW_MASTHEAD, TRUSTLINE } from '../lib/mode-copy.ts';
+import { GRANT_UNITS } from '../lib/faucet-policy.ts';
+import { usdcAmount } from '../lib/faucet-copy.ts';
+import { modeCopy, previewMasthead, trustlineCopy } from '../lib/mode-copy.ts';
 import { pollarEnabled, shortAddress } from '../lib/pollar.ts';
 import { ensureUserCookie, forgetUserCookie } from '../lib/session-login.ts';
 import { usdcAsset } from '../lib/trustline.ts';
@@ -13,6 +15,8 @@ import { useBalances } from '../lib/use-balances.ts';
 import { useFaucetAccess } from '../lib/use-faucet-access.ts';
 import { useWalletSigner } from '../lib/use-wallet-signer.ts';
 import { signWalletProof } from '../lib/wallet-proof.ts';
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
 import { CardModal } from './CardModal';
 import { FaucetConfirm } from './FaucetConfirm';
 import { ModeBadge } from './ModeBadge';
@@ -40,13 +44,16 @@ export function WalletWidget() {
 }
 
 function NoWallet() {
+  // The title is for whoever deployed this, not for a shopper, so it stays in
+  // one language: it names an environment variable and a file in the repo.
+  const copy = uiCopy(useLang()).wallet;
   useEffect(() => {
     track('payment_view', { state: 'unconfigured' });
   }, []);
   return (
     <div className="wallet wallet-off" title="Falta NEXT_PUBLIC_POLLAR_API_KEY_MAINNET. Ver DEPLOY.md">
-      <span className="wallet-label">Tu pago</span>
-      <span className="wallet-muted">pago no configurado</span>
+      <span className="wallet-label">{copy.label}</span>
+      <span className="wallet-muted">{copy.unconfigured}</span>
     </div>
   );
 }
@@ -61,7 +68,11 @@ function ConnectedWallet() {
   // sees the button: the route would refuse them anyway. On a network with no
   // friendbot the answer is always no, so the button leaves by itself.
   const faucet = useFaucetAccess(address, network);
-  const mode = modeCopy(network);
+  const lang = useLang();
+  const copy = uiCopy(lang).wallet;
+  const mode = modeCopy(network, lang);
+  const trustline = trustlineCopy(lang);
+  const masthead = previewMasthead(lang);
 
   // There is no "put them back in the safe mode" correction any more, and
   // there must not be one. The mode is the session (lib/app-mode.ts), so
@@ -115,7 +126,7 @@ function ConnectedWallet() {
     setOpenError(null);
     try {
       const outcome = await setTrustline(asset);
-      if (outcome.status === 'error') throw new Error(outcome.details ?? TRUSTLINE.failed);
+      if (outcome.status === 'error') throw new Error(outcome.details ?? trustline.failed);
       refresh();
     } catch (err) {
       track('payment_fail', { flow: 'receive', code: 'trustline' });
@@ -163,7 +174,7 @@ function ConnectedWallet() {
       let proof: FaucetProof | undefined;
       if (faucet?.mode === 'allowlist' || faucet?.mode === 'public') {
         const signed = await signWalletProof(sign, 'faucet', address);
-        if (!signed) throw new Error('No pudimos confirmar tu sesión para cargar USDC. Probá de nuevo.');
+        if (!signed) throw new Error(copy.fundProofFailed);
         proof = signed;
       }
       const res = await fetch('/api/faucet', {
@@ -178,10 +189,7 @@ function ConnectedWallet() {
       }
       track('payment_success', { flow: 'faucet', code: res.status === 429 ? 'enough' : 'ok' });
       setNote(
-        json.note ??
-          (json.created
-            ? 'Listo: saldo de prueba cargado.'
-            : '+50,00 USDC de prueba.'),
+        json.note ?? (json.created ? copy.funded : copy.fundedAmount(usdcAmount(GRANT_UNITS, lang))),
       );
       refresh();
     } catch (err) {
@@ -200,9 +208,9 @@ function ConnectedWallet() {
     return (
       <div className="wallet">
         <ModeBadge network={network} />
-        <span className="wallet-muted">{PREVIEW_MASTHEAD.hint}</span>
+        <span className="wallet-muted">{masthead.hint}</span>
         <button type="button" className="btn" onClick={() => trackLoginStart(openLoginModal)}>
-          {PREVIEW_MASTHEAD.action}
+          {masthead.action}
         </button>
       </div>
     );
@@ -211,7 +219,7 @@ function ConnectedWallet() {
   return (
     <div className="wallet">
       <div className="wallet-head">
-        <span className="wallet-label">Tu pago</span>
+        <span className="wallet-label">{copy.label}</span>
         {/* It used to copy the address on click, silently: no confirmation,
             no way to see the whole thing, and nothing for somebody holding a
             phone. It opens the dialog that does all three. */}
@@ -225,7 +233,7 @@ function ConnectedWallet() {
             setOpenError(null);
             setReceiving(true);
           }}
-          title={`${address}. Clic para ver el QR y copiarla`}
+          title={copy.addressTitle(address)}
         >
           {shortAddress(address)}
         </button>
@@ -236,7 +244,7 @@ function ConnectedWallet() {
         {/* The qualifier is part of the number, not a footnote somewhere
             else: this is the line that says whether the money is real. */}
         <span className="wallet-unit">{mode.balanceUnit}</span>
-        {loading && <span className="wallet-muted">actualizando…</span>}
+        {loading && <span className="wallet-muted">{copy.refreshing}</span>}
       </div>
 
       <ModeBadge network={network} />
@@ -245,7 +253,7 @@ function ConnectedWallet() {
         {/* No fee warning here. Pollar sponsors the fee — see the note on
             BalanceResponse — so a shopper holding 0 XLM is the normal, working
             state rather than something to act on. */}
-        {!verified && <span className="wallet-muted">verificando sesión…</span>}
+        {!verified && <span className="wallet-muted">{copy.verifying}</span>}
       </div>
 
       {error && <p className="wallet-error">{error}</p>}
@@ -265,7 +273,7 @@ function ConnectedWallet() {
             }}
             disabled={funding || confirming}
           >
-            {funding ? 'Cargando…' : 'Cargar USDC'}
+            {funding ? copy.funding : copy.fundCta}
           </button>
         ) : null}
         {/* The card, one press from the balance, because that is where
@@ -281,7 +289,7 @@ function ConnectedWallet() {
           type="button"
           className="btn btn-ghost wallet-icon-btn"
           data-testid="wallet-card"
-          aria-label="Mi tarjeta"
+          aria-label={copy.cardAria}
           aria-haspopup="dialog"
           onClick={() => setShowingCard(true)}
         >
@@ -299,7 +307,7 @@ function ConnectedWallet() {
           type="button"
           className="btn btn-ghost wallet-icon-btn"
           data-testid="wallet-orders"
-          aria-label="Mis compras"
+          aria-label={copy.purchasesAria}
           aria-haspopup="dialog"
           onClick={() => setShowingOrders(true)}
         >
@@ -309,7 +317,7 @@ function ConnectedWallet() {
           type="button"
           className="btn btn-ghost wallet-icon-btn"
           data-testid="wallet-logout"
-          aria-label="Salir"
+          aria-label={copy.signOutAria}
           onClick={() => {
             track('logout');
             forgetUserCookie();

@@ -68,3 +68,20 @@ export function XIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * Globe, for the language switch. Same social box, because it sits in the
+ * footer row beside those two and a different weight would read as a
+ * different kind of control. Meridian and equator only: a globe with
+ * coastlines at 18px is a smudge, and the coastlines of *which* continent is
+ * a question a language switch should not be answering.
+ */
+export function GlobeIcon({ className }: { className?: string }) {
+  return (
+    <svg {...socialGlyph(className, 16)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" />
+    </svg>
+  );
+}

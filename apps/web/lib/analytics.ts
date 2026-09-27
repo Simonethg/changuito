@@ -94,9 +94,28 @@ export function sanitizeProps(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-/** Map a bubble the shopper can already see onto a short code. The text stays on screen only. */
+/**
+ * Map a bubble the shopper can already see onto a short code. The text stays on
+ * screen only.
+ *
+ * Both languages, because the footer decides which one was written and a code
+ * that only recognises Spanish would file every English reader's failure as
+ * `unknown` — which looks like a quiet outage in the dashboard rather than the
+ * same errors under a different spelling. The Spanish prefixes are unchanged;
+ * the English ones are the counterparts from `use-chat.ts`, `loop.ts` and
+ * `login-constants.ts`. The two local-model lines have no English twin on
+ * purpose: nothing has emitted them since the local model came out, and they
+ * are kept only to classify rows already in a backlog (CLAUDE.md §5).
+ */
 export function errorCode(message: string): string {
   if (message.startsWith('Para seguir, iniciá sesión')) return 'login_required';
+  if (message.startsWith('To carry on, sign in')) return 'login_required';
+  if (message.startsWith('I could not save the session')) return 'session';
+  if (message.startsWith('The connection dropped')) return 'connection';
+  if (message.startsWith('The reply cut out')) return 'truncated';
+  if (message.startsWith('The search took too long')) return 'timeout';
+  if (message.startsWith('I went round in circles')) return 'stuck';
+  if (message.startsWith('The server answered')) return 'http';
   if (message.startsWith('No pude guardar la sesión')) return 'session';
   if (message.startsWith('Se cortó la conexión')) return 'connection';
   if (message.startsWith('Se cortó la respuesta')) return 'connection';

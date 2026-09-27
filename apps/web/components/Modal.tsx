@@ -2,6 +2,9 @@
 
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
+
 /**
  * The dialog chrome, once.
  *
@@ -98,7 +101,7 @@ export function Modal({
       >
         <header className="modal-head">
           <h2 id={titleId}>{title}</h2>
-          <button type="button" className="modal-x" onClick={onClose} aria-label="Cerrar">
+          <button type="button" className="modal-x" onClick={onClose} aria-label={uiCopy(useLang()).close}>
             ×
           </button>
         </header>

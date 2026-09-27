@@ -1,5 +1,8 @@
+'use client';
+
 import type { ToolRun } from '../lib/chat-state';
-import { TOOL_LABELS } from '../lib/tool-labels.ts';
+import { toolLabels } from '../lib/tool-labels.ts';
+import { useLang } from './LangProvider';
 
 /**
  * What the agent actually did, in the user's language.
@@ -12,6 +15,7 @@ import { TOOL_LABELS } from '../lib/tool-labels.ts';
  */
 
 export function ToolTrail({ tools }: { tools: ToolRun[] }) {
+  const labels = toolLabels(useLang());
   if (tools.length === 0) return null;
 
   const lastIdx = tools.length - 1;
@@ -42,7 +46,7 @@ export function ToolTrail({ tools }: { tools: ToolRun[] }) {
                 {t.ok === undefined ? '◌' : t.ok ? '●' : '×'}
               </span>
             )}
-            <span>{TOOL_LABELS[t.name] ?? t.name}</span>
+            <span>{labels[t.name] ?? t.name}</span>
             {t.ms !== undefined ? (
               <span className="trail-ms">{(t.ms / 1000).toFixed(1)}s</span>
             ) : null}

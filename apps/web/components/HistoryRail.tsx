@@ -2,6 +2,10 @@
 
 import { useEffect, useRef } from 'react';
 
+import type { Lang } from '../lib/lang.ts';
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
+
 import type { ChatSummary, OrderState } from './ShopProvider';
 import { useShop } from './ShopProvider';
 
@@ -20,13 +24,15 @@ import { useShop } from './ShopProvider';
  * 390px screen is one too many.
  */
 
-const STATE_COPY: Record<OrderState, string | null> = {
-  none: null,
-  open: 'En curso',
-  paid: 'Pagado',
-};
+/** `none` has no chip at all, which is why it is a null and not a word. */
+function stateChip(lang: Lang): Record<OrderState, string | null> {
+  const copy = uiCopy(lang).history;
+  return { none: null, open: copy.open, paid: copy.paid };
+}
 
 export function HistoryRail({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const lang = useLang();
+  const copy = uiCopy(lang).history;
   const shop = useShop();
   const panel = useRef<HTMLDivElement>(null);
 
@@ -51,15 +57,15 @@ export function HistoryRail({ open, onClose }: { open: boolean; onClose: () => v
       <aside
         ref={panel}
         className={open ? 'rail rail-history is-open' : 'rail rail-history'}
-        aria-label="Tus compras"
+        aria-label={copy.aria}
       >
         <div className="rail-history-head">
-          <span className="rail-history-title">Tus compras</span>
+          <span className="rail-history-title">{copy.title}</span>
           <button
             type="button"
             className="btn btn-ghost btn-sm rail-history-close"
             onClick={onClose}
-            aria-label="Cerrar"
+            aria-label={copy.close}
           >
             ✕
           </button>
@@ -74,17 +80,18 @@ export function HistoryRail({ open, onClose }: { open: boolean; onClose: () => v
             onClose();
           }}
         >
-          Nueva compra
+          {copy.newChat}
         </button>
 
         {chats.length === 0 ? (
-          <p className="rail-history-empty">Acá van a quedar tus compras para que las revises cuando quieras.</p>
+          <p className="rail-history-empty">{copy.empty}</p>
         ) : (
           <ul className="rail-history-list">
             {chats.map((c) => (
               <HistoryRow
                 key={c.id}
                 chat={c}
+                lang={lang}
                 active={c.id === shop?.activeChatId}
                 onOpen={() => {
                   shop?.openChat(c.id);
@@ -102,13 +109,15 @@ export function HistoryRail({ open, onClose }: { open: boolean; onClose: () => v
 function HistoryRow({
   chat,
   active,
+  lang,
   onOpen,
 }: {
   chat: ChatSummary;
   active: boolean;
+  lang: Lang;
   onOpen: () => void;
 }) {
-  const state = STATE_COPY[chat.orderState];
+  const state = stateChip(lang)[chat.orderState];
   return (
     <li>
       <button

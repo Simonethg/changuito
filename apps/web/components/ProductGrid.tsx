@@ -1,4 +1,9 @@
+'use client';
+
 import type { Product } from '@changuito/mcp/types';
+
+import { uiCopy } from '../lib/ui-copy.ts';
+import { useLang } from './LangProvider';
 
 /**
  * What the model chose to show, not everything it searched.
@@ -8,9 +13,10 @@ import type { Product } from '@changuito/mcp/types';
  * change in its spacing would put a wrong price on a card.
  */
 export function ProductGrid({ items, note }: { items: Product[]; note?: string }) {
+  const copy = uiCopy(useLang()).grid;
   if (items.length === 0) return null;
   return (
-    <section className="grid-wrap" aria-label="Productos encontrados">
+    <section className="grid-wrap" aria-label={copy.aria}>
       {note ? <p className="grid-note">{note}</p> : null}
       <ul className="grid">
         {items.map((p) => (
@@ -40,7 +46,7 @@ export function ProductGrid({ items, note }: { items: Product[]; note?: string }
                   {p.unitMultiplier} {p.measurementUnit}
                 </span>
               ) : null}
-              {!p.available ? <span className="card-oos">Sin stock</span> : null}
+              {!p.available ? <span className="card-oos">{copy.outOfStock}</span> : null}
             </div>
           </li>
         ))}

@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useRef } from 'react';
 
-import { RECEIVE, TRUSTLINE } from '../lib/mode-copy.ts';
+import { receiveCopy, trustlineCopy } from '../lib/mode-copy.ts';
+import { useLang } from './LangProvider';
 import { qrPicture } from '../lib/qr.ts';
 import type { TrustlineState } from '../lib/trustline.ts';
 import { CopyField } from './CopyField';
@@ -45,6 +46,10 @@ export function ReceiveModal({
   onEnable: () => void;
   onClose: () => void;
 }) {
+  const lang = useLang();
+  const receive = receiveCopy(lang);
+  // `trustline` is the prop above, so the copy for it needs a different name.
+  const tl = trustlineCopy(lang);
   const titleId = useId();
   const leadId = useId();
   const dialog = useRef<HTMLElement>(null);
@@ -97,11 +102,11 @@ export function ReceiveModal({
         onClick={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
-          <h2 id={titleId}>{RECEIVE.title}</h2>
+          <h2 id={titleId}>{receive.title}</h2>
         </header>
 
         <p id={leadId} className="pay-note">
-          {RECEIVE.lead}
+          {receive.lead}
         </p>
 
         {/* A white plate under the code regardless of the page's theme: a QR is
@@ -110,7 +115,7 @@ export function ReceiveModal({
           <svg
             viewBox={`0 0 ${qr.size} ${qr.size}`}
             role="img"
-            aria-label={RECEIVE.qrAlt}
+            aria-label={receive.qrAlt}
             data-testid="receive-qr"
             shapeRendering="crispEdges"
           >
@@ -120,25 +125,25 @@ export function ReceiveModal({
         </div>
 
         <dl className="ck-fields">
-          <CopyField label={RECEIVE.addressLabel} value={address} testid="receive-address" mono />
+          <CopyField label={receive.addressLabel} value={address} testid="receive-address" mono />
         </dl>
 
         <ul className="receive-facts">
-          {RECEIVE.facts.map((fact) => (
+          {receive.facts.map((fact) => (
             <li key={fact}>{fact}</li>
           ))}
         </ul>
 
-        <p className="pay-warn">{RECEIVE.warn}</p>
+        <p className="pay-warn">{receive.warn}</p>
 
         {/* The other way this arrives as nothing, and the only one we can fix
             from here. PaymentModal opens the line too, but at pay time — which
             is after the money was supposed to have landed. */}
         {needsTrustline ? (
           <div className="pay-step">
-            <strong>{TRUSTLINE.title}</strong>
-            <p>{TRUSTLINE.body}</p>
-            {enableError ? <p className="pay-error">{TRUSTLINE.failed}</p> : null}
+            <strong>{tl.title}</strong>
+            <p>{tl.body}</p>
+            {enableError ? <p className="pay-error">{tl.failed}</p> : null}
           </div>
         ) : null}
 
@@ -152,7 +157,7 @@ export function ReceiveModal({
               onClick={onEnable}
               disabled={enabling}
             >
-              {enabling ? TRUSTLINE.working : TRUSTLINE.action}
+              {enabling ? tl.working : tl.action}
             </button>
           ) : null}
           <button
@@ -162,7 +167,7 @@ export function ReceiveModal({
             data-testid="receive-close"
             onClick={onClose}
           >
-            {RECEIVE.dismiss}
+            {receive.dismiss}
           </button>
         </div>
       </section>

@@ -6,7 +6,9 @@ import type { SettleResponse } from '../app/api/settle/route.ts';
 import { modeCopy } from '../lib/mode-copy.ts';
 import type { OpenedOrder, SettleAction } from '../lib/order.ts';
 import { explorer, formatUsdc } from '../lib/stellar.ts';
+import { uiCopy } from '../lib/ui-copy.ts';
 import { signWalletProof, type WalletSigner } from '../lib/wallet-proof.ts';
+import { useLang } from './LangProvider';
 
 /**
  * Steps 5 and 6: the money is locked, and this is what closes it out.
@@ -37,14 +39,16 @@ export function OrderPanel({
   // — the settle, the refund, both explorer links — has to name the one the
   // money is actually on.
   const net = order.network;
-  const mode = modeCopy(net);
+  const lang = useLang();
+  const copy = uiCopy(lang).order;
+  const mode = modeCopy(net, lang);
 
   async function close(action: SettleAction) {
     setClosing(action);
     setError(null);
     try {
       const proof = sign ? await signWalletProof(sign, action, order.buyer, order.orderId) : null;
-      if (!proof) throw new Error('Necesitamos que confirmes con la billetera que pagó la orden. Probá de nuevo.');
+      if (!proof) throw new Error(copy.proofFailed);
       const res = await fetch('/api/settle', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -72,29 +76,29 @@ export function OrderPanel({
     return (
       <section className={settled ? 'order-panel is-done' : 'order-panel'} aria-live="polite">
         <header className="order-head">
-          <strong>{settled ? '✓ Tu changuito está pago' : 'Orden reembolsada'}</strong>
+          <strong>{settled ? copy.settled : copy.refunded}</strong>
           {onDismiss ? (
-            <button type="button" className="modal-x" onClick={onDismiss} aria-label="Cerrar">
+            <button type="button" className="modal-x" onClick={onDismiss} aria-label={copy.close}>
               ×
             </button>
           ) : null}
         </header>
         <p className="pay-note">
           {settled
-            ? `${outcome.amountDisplay} ${mode.balanceUnit} quedaron confirmados. Retirá el pedido en el súper.`
-            : `${outcome.amountDisplay} ${mode.balanceUnit} volvieron a tu saldo. No se cobró nada.`}
+            ? copy.settledNote(outcome.amountDisplay, mode.balanceUnit)
+            : copy.refundedNote(outcome.amountDisplay, mode.balanceUnit)}
         </p>
         <ul className="tx-list">
           <li>
-            <span>Reserva</span>
+            <span>{copy.hold}</span>
             <a href={explorer.tx(order.hash, net)} target="_blank" rel="noopener noreferrer">
-              ver transacción ↗
+              {copy.viewTx}
             </a>
           </li>
           <li>
-            <span>{settled ? 'Confirmación' : 'Reembolso'}</span>
+            <span>{settled ? copy.confirmation : copy.refund}</span>
             <a href={outcome.txUrl} target="_blank" rel="noopener noreferrer">
-              ver transacción ↗
+              {copy.viewTx}
             </a>
           </li>
         </ul>
@@ -102,14 +106,14 @@ export function OrderPanel({
           // The preimage, not just the hash: 32 bytes on a block explorer prove
           // nothing unless you can see what was hashed into them.
           <details className="receipt">
-            <summary>Comprobante del pago</summary>
+            <summary>{copy.receipt}</summary>
             <pre>{outcome.receipt}</pre>
             <p className="pay-fine-line">sha256 = {outcome.receiptHash}</p>
           </details>
         ) : null}
         {settled && order.handoffUrl ? (
           <a className="btn" href={order.handoffUrl} target="_blank" rel="noopener noreferrer">
-            Abrir el carrito
+            {copy.openCart}
           </a>
         ) : null}
       </section>
@@ -119,15 +123,14 @@ export function OrderPanel({
   return (
     <section className="order-panel" aria-live="polite">
       <header className="order-head">
-        <strong>Pago reservado · {amount} {mode.balanceUnit}</strong>
+        <strong>{copy.held(amount, mode.balanceUnit)}</strong>
         <a href={explorer.tx(order.hash, net)} target="_blank" rel="noopener noreferrer">
-          ver transacción ↗
+          {copy.viewTx}
         </a>
       </header>
       <p className="pay-note">
         {mode.holdNote ? <strong>{mode.holdNote} </strong> : null}
-        Tu pago quedó reservado. Completá el carrito de {order.totalDisplay} en el súper y volvé
-        acá para confirmarlo, o pedí el reembolso si no se pudo.
+        {copy.lead(order.totalDisplay)}
       </p>
       {error ? <p className="pay-error">{error}</p> : null}
       <div className="modal-actions">
@@ -138,7 +141,7 @@ export function OrderPanel({
             target="_blank"
             rel="noopener noreferrer"
           >
-            Abrir el carrito
+            {copy.openCart}
           </a>
         ) : null}
         <button
@@ -147,7 +150,7 @@ export function OrderPanel({
           onClick={() => void close('settle')}
           disabled={closing !== null}
         >
-          {closing === 'settle' ? 'Confirmando…' : 'Ya lo completé'}
+          {closing === 'settle' ? copy.confirming : copy.doneCta}
         </button>
         <button
           type="button"
@@ -155,7 +158,7 @@ export function OrderPanel({
           onClick={() => void close('refund')}
           disabled={closing !== null}
         >
-          {closing === 'refund' ? 'Reembolsando…' : 'No se pudo'}
+          {closing === 'refund' ? copy.refunding : copy.refundFailed}
         </button>
       </div>
     </section>

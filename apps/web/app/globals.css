@@ -1175,6 +1175,38 @@ a:hover { color: var(--chg-arcilla); }
   outline-offset: -3px;
 }
 
+/* Language switch. Same 44px row height and the same muted/--text pair as
+   the social links beside it, so the footer reads as one strip rather than
+   an icon group with a button bolted on. It carries a word as well as the
+   glyph because the word is the whole affordance (see LangToggle), so it is
+   wider than 44px and that is fine: the footer wraps. */
+.app-lang {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.app-lang-label {
+  font-size: 12px;
+  line-height: 1.35;
+}
+.app-lang:hover {
+  color: var(--text);
+  background: rgba(42, 26, 20, 0.06);
+}
+.app-lang:focus-visible {
+  outline: 3px solid var(--chg-espresso);
+  outline-offset: -3px;
+}
+
 /* Pollar's modal fades its version tag to opacity .6 over --pollar-muted,
    2.3:1 on white (axe color-contrast, serious). Full opacity restores the
    muted grey Pollar uses for the rest of its footer. Scoped to its overlay. */
