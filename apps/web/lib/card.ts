@@ -35,7 +35,7 @@
 import { CARD_MAX_CENTS, CARD_MIN_CENTS, VyrionClient } from '@changuito/mcp/pay';
 
 import { modeKeepsRecords } from './app-mode.ts';
-import { claimOrder, hasDatabase, openOrder, orderByMemo } from './db.ts';
+import { bindCard, claimOrder, hasDatabase, openOrder, orderByMemo } from './db.ts';
 import { depositAsset } from './deposit.ts';
 import { findDeposit } from './deposit-watch.ts';
 import type { NetworkId } from './deployments.ts';
@@ -303,4 +303,100 @@ export async function claimDeposit(
 export async function heldCard(net: NetworkId, memo: string): Promise<string | undefined> {
   if (!hasDatabase()) return localClaims.get(localKey(net, memo));
   return (await orderByMemo(net, memo))?.cardId ?? undefined;
+}
+
+/* ---- issuing ------------------------------------------------------------- */
+
+/** The categories a grocery order can legitimately land in. Same default as
+ *  packages/mcp/src/config.ts, and the same env var, so the two cannot drift.
+ *
+ *  Here rather than in a route file because `allowed_categories` is fixed at
+ *  creation and can never be changed: two routes reading two copies of this
+ *  list would mean a card minted from the stale one accepts the wrong
+ *  merchants for the whole of its life. */
+export const GROCERY_MCC = (process.env.ALLOWED_MCC ?? '5411,5499,5311')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+/**
+ * The best BIN, or nothing. `bins()` has already dropped anything without 3DS
+ * and sorted by acceptance rate; an empty list is an account problem rather
+ * than a shopper one, so it is logged here and read as a 502 by the caller.
+ */
+export async function firstBin(client: VyrionClient) {
+  const bin = (await client.bins())[0];
+  if (!bin) console.error('[card] no 3DS-capable BIN available on this Vyrion account');
+  return bin ?? null;
+}
+
+/** Give back a card we should not be holding. The balance returns at once. */
+export async function handBack(client: VyrionClient, cardId: string): Promise<void> {
+  await client.terminateCard(cardId).catch((e) => {
+    console.error(
+      `[card] could not terminate the losing card ${cardId}:`,
+      e instanceof Error ? e.message : String(e),
+    );
+  });
+}
+
+export type KeptMint =
+  | { ok: false; reason: 'no-bin' }
+  /** We created it and the binding is ours. */
+  | { ok: true; won: true; cardId: string; last4: string; brand: string }
+  /** Another lambda got there first; ours is already handed back. */
+  | { ok: true; won: false; cardId: string };
+
+/**
+ * Create the one card a customer keeps, and bind it — resolving the race.
+ *
+ * Two lambdas can reach `createCard` for the same wallet at once (the deposit
+ * watcher and a refreshed tab, say) and both come away holding a real card.
+ * `bindCard`'s `on conflict do nothing` lets exactly one row win; the loser
+ * learns it lost by getting back an id that is not its own, and **must** hand
+ * its card in or the customer is charged for two.
+ *
+ * That sequence is subtle enough that having it twice is how a second card
+ * eventually gets issued, so it lives here and both callers — the deposit that
+ * tops a card up, and the customer who asks for one outright — go through it.
+ *
+ * No `spendingLimitCents`, deliberately: a limit set at creation can never be
+ * raised (Vyrion has no update-limit endpoint), so it would become the ceiling
+ * the card silently stops working at on some future shop.
+ */
+export async function mintKeptCard(
+  client: VyrionClient,
+  {
+    net,
+    owner,
+    cents,
+    metadata,
+  }: { net: NetworkId; owner: string; cents: number; metadata?: Record<string, unknown> },
+): Promise<KeptMint> {
+  const bin = await firstBin(client);
+  if (!bin) return { ok: false, reason: 'no-bin' };
+
+  const card = await client.createCard({
+    binId: bin.id,
+    amountCents: cents,
+    label: `changuito ${owner.slice(-6)}`,
+    allowedCategories: GROCERY_MCC,
+    metadata: { owner, network: net, ...metadata },
+  });
+
+  let winner: string;
+  try {
+    winner = await bindCard(net, owner, card.id, {
+      last4: card.last4,
+      brand: card.network,
+    });
+  } catch (err) {
+    await handBack(client, card.id);
+    throw err;
+  }
+  if (winner !== card.id) {
+    await handBack(client, card.id);
+    return { ok: true, won: false, cardId: winner };
+  }
+  return { ok: true, won: true, cardId: card.id, last4: card.last4, brand: card.network };
 }

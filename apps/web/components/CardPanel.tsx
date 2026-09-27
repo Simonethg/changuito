@@ -8,6 +8,7 @@ import { track } from '../lib/analytics';
 import { type CardHint, recallCard, rememberCard } from '../lib/card-store.ts';
 import type { CheckoutCopy } from '../lib/checkout-copy.ts';
 import type { NetworkId } from '../lib/deployments.ts';
+import { CardFace } from './CardFace';
 import { CopyField } from './CopyField';
 
 /**
@@ -200,29 +201,15 @@ export function CardPanel({ memo, network, copy, onIssued }: Props) {
       <h4 className="ck-card-title">
         {copy.cardTitle} <span className="ck-brand">{card.brand}</span>
       </h4>
-      <dl className="ck-fields">
-        <CopyField
-          label={copy.cardNumberLabel}
-          // Grouped to be read off a screen and typed into a form; the
-          // clipboard gets the digits, because most forms reject the spaces.
-          value={groups(card.pan)}
-          copyValue={card.pan}
-          testid="checkout-card-pan"
-          mono
-        />
-        <CopyField
-          label={copy.cardExpiryLabel}
-          value={`${card.expiryMonth}/${card.expiryYear}`}
-          testid="checkout-card-expiry"
-          mono
-        />
-        <CopyField
-          label={copy.cardCvvLabel}
-          value={card.cvv}
-          testid="checkout-card-cvv"
-          mono
-        />
-      </dl>
+      <CardFace
+        card={card}
+        labels={{
+          number: copy.cardNumberLabel,
+          expiry: copy.cardExpiryLabel,
+          cvv: copy.cardCvvLabel,
+        }}
+        idPrefix="checkout-card"
+      />
       {/* The figure first: it is the fact, and the sentence is the reassurance. */}
       <p className="ck-note">
         {card.fundedDisplay}. {copy.cardFunded}
@@ -264,10 +251,6 @@ function sentence(text: string): string {
 }
 
 /** 4111111111111111 -> 4111 1111 1111 1111. Display only. */
-function groups(pan: string): string {
-  return pan.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim();
-}
-
 function clock(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;

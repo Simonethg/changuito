@@ -89,6 +89,25 @@ export async function cardOf(net: NetworkId, address: string): Promise<string | 
   return rows[0]?.card_id as string | undefined;
 }
 
+/** The binding with its cached face, for a panel that only has to name the
+ *  card rather than show it. `last4`/`brand` are null on rows written before
+ *  0003_card_face.sql and whenever the caller had nothing to cache. */
+export async function cardFaceOf(
+  net: NetworkId,
+  address: string,
+): Promise<{ cardId: string; last4: string | null; brand: string | null } | undefined> {
+  const rows = await db()`
+    select card_id, last4, brand
+      from card_owner where network = ${net} and address = ${address}`;
+  const r = rows[0];
+  if (!r) return undefined;
+  return {
+    cardId: r.card_id as string,
+    last4: (r.last4 as string | null) ?? null,
+    brand: (r.brand as string | null) ?? null,
+  };
+}
+
 /**
  * Bind a freshly created card to a customer, once.
  *
@@ -103,11 +122,23 @@ export async function cardOf(net: NetworkId, address: string): Promise<string | 
  * for the per-deposit claim, and it is here rather than there because the
  * atomicity is a property of the constraint.
  */
-export async function bindCard(net: NetworkId, address: string, cardId: string): Promise<string> {
+export async function bindCard(
+  net: NetworkId,
+  address: string,
+  cardId: string,
+  /** last4 and brand, so reading the binding back does not cost a provider
+   *  call. Optional because the caller may not have them, and because they are
+   *  a cache rather than the truth — see 0003_card_face.sql. Written on the
+   *  winning insert only: the loser's card is about to be handed back, so its
+   *  face would be a lie the moment it landed. */
+  face?: { last4?: string; brand?: string },
+): Promise<string> {
   const sql = db();
+  const last4 = /^\d{4}$/.test(face?.last4 ?? '') ? face!.last4! : null;
+  const brand = face?.brand?.trim() || null;
   const inserted = await sql`
-    insert into card_owner (network, address, card_id)
-    values (${net}, ${address}, ${cardId})
+    insert into card_owner (network, address, card_id, last4, brand)
+    values (${net}, ${address}, ${cardId}, ${last4}, ${brand})
     on conflict (network, address) do nothing
     returning card_id`;
   if (inserted[0]) return inserted[0].card_id as string;

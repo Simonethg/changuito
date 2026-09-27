@@ -83,10 +83,14 @@ import {
   cardClient,
   claimDeposit,
   depositorOf,
+  firstBin,
   type FundedDeposit,
   fundingFor,
+  GROCERY_MCC,
+  handBack,
   heldCard,
   keepsOneCard,
+  mintKeptCard,
   refuseFunding,
 } from '../../../lib/card.ts';
 import { bindCard, cardOf, hasDatabase, unbindCard } from '../../../lib/db.ts';
@@ -113,13 +117,6 @@ export interface IssuedCard {
   holder: string;
   fundedDisplay: string;
 }
-
-/** The categories a grocery order can legitimately land in. Same default as
- *  packages/mcp/src/config.ts, and the same env var, so the two cannot drift. */
-const GROCERY_MCC = (process.env.ALLOWED_MCC ?? '5411,5499,5311')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
 
 function networkFrom(value: unknown): NetworkId {
   return value === 'mainnet' || value === 'testnet' ? value : DEFAULT_NETWORK;
@@ -334,34 +331,23 @@ async function fundTheCardTheyKeep(
   }
 
   if (!cardId) {
-    const bin = await firstBin(client);
-    if (!bin) return json({ error: 'no pudimos emitir una tarjeta en este momento' }, 502);
-
-    const card = await client.createCard({
-      binId: bin.id,
-      amountCents: funding.cents,
-      // No `spendingLimitCents`, and the header says why at length: a limit
-      // set here can never be raised, so it would become the ceiling this
-      // card silently stops working at on some future shop.
-      label: `changuito ${owner.slice(-6)}`,
-      allowedCategories: GROCERY_MCC,
-      metadata: { owner, network: net, memo, tx: funding.txHash },
+    // Creation, binding, and the two-lambda race are `mintKeptCard`'s, because
+    // the customer who asks for a card outright runs exactly the same sequence
+    // and having it twice is how somebody ends up with two cards.
+    const mint = await mintKeptCard(client, {
+      net,
+      owner,
+      cents: funding.cents,
+      metadata: { memo, tx: funding.txHash },
     });
+    if (!mint.ok) return json({ error: 'no pudimos emitir una tarjeta en este momento' }, 502);
 
-    // Two lambdas can reach createCard for the same wallet; exactly one row
-    // wins. The loser learns it lost by getting an id back that is not its
-    // own, and hands its card in rather than leaving the customer with two.
-    let winner: string;
-    try {
-      winner = await bindCard(net, owner, card.id);
-    } catch (err) {
-      await handBack(client, card.id);
-      throw err;
-    }
-    if (winner !== card.id) {
-      await handBack(client, card.id);
-      cardId = winner;
+    if (!mint.won) {
+      // Somebody else's card is the one bound. Ours is already handed back;
+      // fall through and top theirs up with this deposit.
+      cardId = mint.cardId;
     } else {
+      const card = { id: mint.cardId, last4: mint.last4, network: mint.brand };
       // Creation funded it, so the claim comes after — there was no id to
       // claim against before. Anything other than a clean win means this card
       // should not exist: it goes back, and the binding goes with it, so the
@@ -412,24 +398,6 @@ async function fundTheCardTheyKeep(
     await issued(client, cardId, funded.last4, funded.network, balance || funding.cents),
     200,
   );
-}
-
-/**
- * The best BIN, or nothing. `bins()` has already dropped anything without 3DS
- * and sorted by acceptance rate; an empty list is an account problem rather
- * than a shopper one, so it is logged here and read as a 502 by the caller.
- */
-async function firstBin(client: ReturnType<typeof cardClient>) {
-  const bin = (await client.bins())[0];
-  if (!bin) console.error('[card] no 3DS-capable BIN available on this Vyrion account');
-  return bin ?? null;
-}
-
-/** Give back a card we should not be holding. The balance returns at once. */
-async function handBack(client: ReturnType<typeof cardClient>, cardId: string): Promise<void> {
-  await client.terminateCard(cardId).catch((e) => {
-    console.error(`[card] could not terminate the losing card ${cardId}:`, message(e));
-  });
 }
 
 /** The card a claim already points at, read back in full. */

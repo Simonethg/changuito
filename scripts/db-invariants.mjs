@@ -81,6 +81,21 @@ try {
                         on conflict (network, address) do nothing returning card_id`;
     check('the same wallet on testnet is a separate card', tn.length === 1);
 
+    // 0003_card_face.sql. The face is a cache of what POST /cards handed back,
+    // so it may be absent — but if it is there it has to look like the thing
+    // it claims to be, or a panel renders "····" and four characters of noise.
+    await refuses(tx, 'a last4 that is not four digits is refused', '23514', (sp) =>
+      sp`insert into card_owner (network, address, card_id, last4) values ('mainnet', ${B}, 'c_2', '12a4')`);
+    await refuses(tx, 'a last4 of the wrong length is refused', '23514', (sp) =>
+      sp`insert into card_owner (network, address, card_id, last4) values ('mainnet', ${B}, 'c_2', '123')`);
+    const face = await tx`insert into card_owner (network, address, card_id, last4, brand)
+                          values ('mainnet', ${B}, 'c_2', '4242', 'visa') returning last4, brand`;
+    check('a well-formed face is stored', face[0].last4 === '4242' && face[0].brand === 'visa');
+    const blank = await tx`insert into card_owner (network, address, card_id)
+                           values ('testnet', ${B}, 'c_3') returning last4, brand`;
+    check('a binding with no face is still allowed', blank[0].last4 === null && blank[0].brand === null);
+    await tx`delete from card_owner where address=${B}`;
+
     // unbindCard, which `POST /api/card/retire` runs after Vyrion has killed
     // the card, and which `POST /api/card/mine` runs when it finds a binding
     // that outlived one. Both name the card id in the WHERE clause, and this
