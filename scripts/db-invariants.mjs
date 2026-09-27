@@ -214,7 +214,7 @@ try {
     check('and it is still unpaid afterwards', unpaid.status === 'quoted', unpaid.status);
 
     // Nor can it revive one that ended badly: a refunded or abandoned order
-    // reading "Terminada" on /mis-compras would be the wrong lie in the wrong
+    // reading "Terminada" in the purchases list would be the wrong lie in the wrong
     // direction.
     await tx`update orders set status='failed' where network='mainnet' and memo='chg-abc123'`;
     check('a failed order cannot be closed', (await done('chg-abc123')).length === 0);

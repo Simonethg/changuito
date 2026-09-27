@@ -27,8 +27,13 @@ import { useNetwork } from './NetworkProvider';
  *
  * The chat keeps its own history in localStorage and the rail lists it, which
  * is enough right up until somebody shops on their phone and opens a laptop.
- * This page is the other half: `POST /api/orders` answers from Postgres, so it
- * is the same list on every device and it survives a cleared browser.
+ * This is the other half: `POST /api/orders` answers from Postgres, so it is
+ * the same list on every device and it survives a cleared browser.
+ *
+ * It used to be the page at /mis-compras. It is now the Mis compras tab of the
+ * profile modal, which is what `embedded` is for: inside the dialog the
+ * heading and the way back are the dialog's, and repeating them would be two
+ * titles and two exits in one box.
  *
  * ## Nothing loads on its own
  *
@@ -56,20 +61,20 @@ import { useNetwork } from './NetworkProvider';
  * constant, so the branch is fixed for the life of the bundle and hook order
  * cannot change under it.
  */
-export function Purchases() {
-  return pollarEnabled ? <WithWallet /> : <NoWallet />;
+export function Purchases({ embedded = false }: { embedded?: boolean } = {}) {
+  return pollarEnabled ? <WithWallet embedded={embedded} /> : <NoWallet embedded={embedded} />;
 }
 
-function NoWallet() {
+function NoWallet({ embedded }: { embedded: boolean }) {
   return (
     <section className="purchases">
-      <h2 className="purchases-title">{PURCHASES.title}</h2>
+      {embedded ? null : <h2 className="purchases-title">{PURCHASES.title}</h2>}
       <p className="purchases-lead">Falta configurar el inicio de sesión en esta instalación.</p>
     </section>
   );
 }
 
-function WithWallet() {
+function WithWallet({ embedded }: { embedded: boolean }) {
   const { wallet, isAuthenticated, openLoginModal } = usePollar();
   const { network } = useNetwork();
   const sign = useWalletSigner();
@@ -122,7 +127,7 @@ function WithWallet() {
 
   return (
     <section className="purchases" data-testid="purchases">
-      <h2 className="purchases-title">{PURCHASES.title}</h2>
+      {embedded ? null : <h2 className="purchases-title">{PURCHASES.title}</h2>}
 
       {!address ? (
         <div className="purchases-empty" data-testid="purchases-guest">
@@ -186,10 +191,6 @@ function WithWallet() {
           ) : null}
         </>
       )}
-
-      <p className="purchases-back">
-        <a href="/">{PURCHASES.back}</a>
-      </p>
     </section>
   );
 }
@@ -252,16 +253,24 @@ function KeptCard({
     setBusy(true);
     setError(null);
     try {
-      const proof = await signWalletProof(sign, 'card', address);
-      if (!proof) {
-        setError(PURCHASES.signRefused);
-        return;
+      const ask = (proof?: unknown) =>
+        fetch('/api/card/mine', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(proof ? { address, network, proof } : { address, network }),
+        });
+      // The session answers this, the same as the order list above. Signing is
+      // the fallback for a cookie that is missing or thirty days old.
+      let res = await ask();
+      if (res.status === 401) {
+        const proof = await signWalletProof(sign, 'card', address);
+        if (!proof) {
+          setError(PURCHASES.signRefused);
+          return;
+        }
+        res = await ask(proof);
       }
-      const res = await fetch('/api/card/mine', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ address, network, proof }),
-      });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         setError(said(body) ?? KEPT_CARD.error);

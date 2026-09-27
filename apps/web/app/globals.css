@@ -111,15 +111,6 @@ a:hover { color: var(--chg-arcilla); }
   min-height: 44px;
 }
 
-/* Only /mis-compras still draws this: there the mark is the whole link back
-   home, so it is the brand rather than a duplicate of it. The masthead on the
-   chat screen dropped its copy — the cart rail's mascot is the one on screen. */
-.brand-mark {
-  height: 44px;
-  width: auto;
-  display: block;
-}
-
 .brand-copy {
   display: flex;
   flex-direction: column;
@@ -776,6 +767,21 @@ a:hover { color: var(--chg-arcilla); }
 .modal-x:disabled { opacity: 0.3; cursor: not-allowed; }
 .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .modal-actions .btn { flex: 1 1 auto; min-width: 128px; text-align: center; }
+
+/* The profile. Two tabs and a list, so it is taller than it is wide and it
+   wants the same 90dvh ceiling `.modal` already sets — the purchases list can
+   run long and scrolling inside the dialog is the right place for it. */
+.modal-profile { max-width: 520px; }
+.profile-tabs { display: flex; gap: 6px; }
+/* A tab is not a submit: it must not stretch the way `.modal-actions .btn`
+   does, and at phone width two of them still have to sit on one row. */
+.profile-tabs .btn { flex: 0 1 auto; }
+.profile-general { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.profile-general .ck-fields { width: 100%; }
+
+/* The card, opened from the balance. Same width as the checkout panel's card
+   step, because it is the same three fields at the same size. */
+.modal-card { max-width: 460px; }
 
 /* The checkout dialog. Wider than the payment one because it holds a frame,
    and the frame is a page someone else laid out: below ~700px tall it starts
@@ -1686,23 +1692,10 @@ a:hover { color: var(--chg-arcilla); }
   }
 }
 
-/* ---- /mis-compras -------------------------------------------------------
-   Its own page shell rather than `.shell`, which is `position: fixed` and
-   sized to the visual viewport so the composer can sit on the keyboard. This
-   page is a list: it scrolls with the document, like a page. */
-.page {
-  max-width: 680px;
-  margin: 0 auto;
-  padding: 24px 16px 48px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.page-head { display: flex; align-items: center; }
-.page-brand { display: inline-flex; align-items: center; text-decoration: none; }
-.page-brand .brand-mark { height: 44px; width: auto; }
-
+/* ---- the purchases list -------------------------------------------------
+   It was a page of its own at /mis-compras, with a `.page` shell, a head and
+   a link home. It is a tab in the profile dialog now, so the dialog owns all
+   three and only the list itself is left. */
 .purchases { display: flex; flex-direction: column; gap: 14px; }
 .purchases-title { margin: 0; font-size: 22px; font-weight: 750; }
 .purchases-sub { margin: 0; font-size: 16px; font-weight: 650; }
@@ -1758,9 +1751,7 @@ a:hover { color: var(--chg-arcilla); }
 .purchase-code code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 .purchase-note { margin: 0; font-size: 12px; color: var(--muted); }
 
-.purchases-back { margin: 0; font-size: 14px; }
-
-/* ---- /mis-compras: the card you keep ---------------------------------- */
+/* ---- the card you keep ------------------------------------------------- */
 
 .kept-card {
   display: flex;

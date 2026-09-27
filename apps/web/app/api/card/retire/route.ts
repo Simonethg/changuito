@@ -4,7 +4,7 @@
  * The other half of `POST /api/card/terminate`, and the reason that route can
  * refuse a kept card at all: destroying the customer's card stops being a
  * side effect of closing a dialog and becomes a thing they ask for, once, on
- * /mis-compras. Vyrion returns any residual balance to the wallet as it dies,
+ * the profile. Vyrion returns any residual balance to the wallet as it dies,
  * so this is how somebody gets their change back and walks away.
  *
  * ## Why this is not `terminate` with a flag

@@ -12,7 +12,7 @@
  *   rail, the blocks, the receipt. It is also what decides a chat is no longer
  *   resumable, since it knows the hour has passed.
  * - **Postgres** — this file — is the *record*. It outlives the TTL, survives a
- *   cleared browser, and is what `/mis-compras` joins an order back to.
+ *   cleared browser, and is what the purchases list joins an order back to.
  *
  * Redis stays the working store on purpose. Paying a Postgres round-trip on
  * every hop would be a visible slowdown for no benefit, so this writes once,

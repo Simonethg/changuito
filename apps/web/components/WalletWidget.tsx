@@ -13,6 +13,7 @@ import { useBalances } from '../lib/use-balances.ts';
 import { useFaucetAccess } from '../lib/use-faucet-access.ts';
 import { useWalletSigner } from '../lib/use-wallet-signer.ts';
 import { signWalletProof } from '../lib/wallet-proof.ts';
+import { CardModal } from './CardModal';
 import { FaucetConfirm } from './FaucetConfirm';
 import { ModeBadge } from './ModeBadge';
 import { useNetwork } from './NetworkProvider';
@@ -81,6 +82,7 @@ function ConnectedWallet() {
   };
 
   const [receiving, setReceiving] = useState(false);
+  const [showingCard, setShowingCard] = useState(false);
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
   const receiveButton = useRef<HTMLButtonElement>(null);
@@ -264,13 +266,25 @@ function ConnectedWallet() {
             {funding ? 'Cargando…' : 'Cargar USDC'}
           </button>
         ) : null}
-        {/* The record, which the rail beside the chat is not: that lists the
-            conversations this browser kept, and this lists what was actually
-            bought, on any device. A link and not a button — it is a page, and
-            a middle click should open it in a tab. */}
-        <a className="btn btn-sm btn-ghost" href="/mis-compras" data-testid="wallet-purchases">
-          Mis compras
-        </a>
+        {/* The card, one press from the balance, because that is where
+            somebody standing in the súper's payment form looks for it. What
+            used to be here was a link to /mis-compras; the record moved into
+            the profile, which is where a thing you consult belongs, and this
+            is a thing you use.
+
+            An icon and not a word: `.wallet-actions` is `flex-wrap: nowrap`
+            and has to hold at phone width, so the row can afford a 44px box
+            and not a fourth label. */}
+        <button
+          type="button"
+          className="btn btn-ghost wallet-icon-btn"
+          data-testid="wallet-card"
+          aria-label="Mi tarjeta"
+          aria-haspopup="dialog"
+          onClick={() => setShowingCard(true)}
+        >
+          <CardIcon />
+        </button>
         {/* No visible label: the name is aria-label, and the 44px box is the target. */}
         <button
           type="button"
@@ -297,6 +311,10 @@ function ConnectedWallet() {
         </button>
       </div>
 
+      {showingCard && address ? (
+        <CardModal address={address} network={network} sign={sign} onClose={() => setShowingCard(false)} />
+      ) : null}
+
       {receiving ? (
         <ReceiveModal
           address={address}
@@ -319,6 +337,17 @@ function ConnectedWallet() {
         />
       ) : null}
     </div>
+  );
+}
+
+/** Inline, like the two below: one caller each. `icons.tsx` is for the shared ones. */
+function CardIcon() {
+  return (
+    <svg className="wallet-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+      <line x1="2.5" y1="10" x2="21.5" y2="10" />
+      <line x1="6" y1="15" x2="10" y2="15" />
+    </svg>
   );
 }
 

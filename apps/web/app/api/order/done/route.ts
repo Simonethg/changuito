@@ -4,7 +4,7 @@
  * The last thing that happens to an order, and the only one the browser is
  * trusted to decide. `CheckoutModal`'s `settle()` already files a receipt at
  * exactly this moment; before this route that receipt lived only in
- * localStorage, so /mis-compras — which reads the database — went on listing
+ * localStorage, so the purchases list — which reads the database — went on listing
  * a finished shop as in flight for ever.
  *
  * ## Why no signature

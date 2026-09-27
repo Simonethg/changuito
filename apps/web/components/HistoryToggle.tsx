@@ -13,6 +13,12 @@ import { useShop } from './ShopProvider';
  * with the 560px block, and it is the first thing after the skip link in tab
  * order, which is where a navigation control belongs.
  *
+ * The name is "Tus conversaciones" and not "Tus compras", which is what it
+ * said until the profile landed. This drawer lists the chats *this browser*
+ * kept; Mis compras is a tab in the profile a few pixels away listing what
+ * was actually bought, on any device. One accessible name for the two of them
+ * was a promise the drawer could not keep.
+ *
  * Hidden at the wide breakpoint: there the rail is a permanent column, and a
  * button that opens what is already open is a dead end.
  */
@@ -25,7 +31,7 @@ export function HistoryToggle() {
       type="button"
       className="btn btn-ghost deck-drawer-toggle"
       data-testid="open-history"
-      aria-label="Tus compras"
+      aria-label="Tus conversaciones"
       aria-expanded={shop.historyOpen}
       onClick={() => shop.setHistoryOpen(true)}
     >

@@ -453,7 +453,7 @@ export async function markPaid(net: NetworkId, memo: string, txHash: string): Pr
  *
  * This is the only status the browser's word decides, and it is deliberately
  * the harmless one: `done` moves no money, issues nothing and reveals nothing.
- * It is a shopper saying "that one is finished" so /mis-compras can stop
+ * It is a shopper saying "that one is finished" so the purchases list can stop
  * listing it as in flight. `markPaid` above is the opposite kind of fact — it
  * is written from a payment read off the ledger, never from a request.
  *
@@ -481,7 +481,7 @@ export async function markDone(net: NetworkId, memo: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** A customer's orders, newest first, for /mis-compras. */
+/** A customer's orders, newest first, for the purchases list. */
 export async function ordersOf(net: NetworkId, address: string, limit = 50): Promise<OrderRow[]> {
   const rows = await db()`
     select * from orders

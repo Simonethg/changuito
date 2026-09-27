@@ -19,7 +19,7 @@
  *
  * Hence `keepsOneCard`, asked before anything is looked up. **Termination of
  * a kept card is never a side effect of leaving a screen.** It is an act the
- * shopper takes deliberately, on /mis-compras, and it costs a signature —
+ * shopper takes deliberately, in the profile, and it costs a signature —
  * `POST /api/card/retire`.
  *
  * ## Why a failed termination freezes

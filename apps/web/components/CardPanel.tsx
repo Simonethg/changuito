@@ -74,6 +74,48 @@ export function CardPanel({ memo, network, copy, onIssued }: Props) {
     if (copy.cardAgainCta) setHint(recallCard(network));
   }, [network, copy.cardAgainCta]);
 
+  // Ask before offering. In this mode the card belongs to the customer and
+  // outlives the basket, so the one this checkout needs may already exist —
+  // and "Generar mi tarjeta" in front of somebody who has one is a button
+  // that cannot do what it says. The server would refuse it, `card_owner` is
+  // unique per wallet, but they would still have pressed it and watched it
+  // fail.
+  //
+  // `copy.cardAgainCta` is the production marker, the same one the hint read
+  // above uses: in preview the card is per basket, nothing is bound, and
+  // there is nothing to find.
+  //
+  // No address and no signature. The route takes the session cookie and reads
+  // the card of whoever it belongs to; a body address would be ignored in
+  // favour of the cookie anyway. Without a session this 400s and the mint
+  // button below is the whole of the flow, exactly as before.
+  useEffect(() => {
+    if (!copy.cardAgainCta) return;
+    let live = true;
+    void (async () => {
+      try {
+        const res = await fetch('/api/card/mine', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ network }),
+        });
+        if (!res.ok || !live) return;
+        const body = (await res.json()) as { card?: IssuedCard | null };
+        if (!live || !body?.card) return;
+        setCard(body.card);
+      } catch {
+        // Silent on purpose. Nothing was asked for, so a failure is not news:
+        // the mint button is still there and still works, and an error about
+        // a read the shopper did not request would sit in front of the thing
+        // they did.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [network, copy.cardAgainCta]);
+
   const [otp, setOtp] = useState<ThreeDsCode | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [polls, setPolls] = useState(0);

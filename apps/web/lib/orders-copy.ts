@@ -2,7 +2,8 @@ import type { OrderStatus } from './db.ts';
 import { PREVIEW_MASTHEAD } from './mode-copy.ts';
 
 /**
- * The words on /mis-compras, and the two numbers on every line.
+ * The words on the Mis compras tab of the profile, and the two numbers on
+ * every line.
  *
  * A module rather than strings in the JSX for the reason mode-copy.ts gives:
  * the chrome obeys the same rule as the agent, so none of these may name a
@@ -31,7 +32,6 @@ export interface PurchasesCopy {
   signRefused: string;
   error: string;
   empty: string;
-  back: string;
   codeLabel: string;
   /** Under a line that ended in a card of ours rather than the shopper's own. */
   cardNote: string;
@@ -52,6 +52,10 @@ export interface KeptCardCopy {
   loading: string;
   /** Not an error: most people have never had one, and the first shop makes it. */
   none: string;
+  /** Offered beside `none`: the card no longer has to wait for a basket. */
+  createCta: string;
+  creating: string;
+  createError: string;
   error: string;
   balanceLabel: string;
   /** Said plainly, with nothing offered, because there is no way back today. */
@@ -79,7 +83,6 @@ export const PURCHASES: PurchasesCopy = {
   signRefused: 'No pudimos confirmar que sos vos. Probá de nuevo.',
   error: 'No pudimos traer tus compras ahora. Probá de nuevo en un rato.',
   empty: 'Todavía no compraste nada con esta cuenta.',
-  back: 'Volver al chat',
   codeLabel: 'Código',
   cardNote: 'Pagada con una tarjeta que te dimos nosotros.',
 };
@@ -89,7 +92,10 @@ export const KEPT_CARD: KeptCardCopy = {
   lead: 'Es una sola y es tuya. Cada compra que hacés le carga el saldo.',
   showCta: 'Ver mi tarjeta',
   loading: 'Buscando tu tarjeta…',
-  none: 'Todavía no tenés una. Se crea sola cuando hagas tu primera compra.',
+  none: 'Todavía no tenés una. Podés generarla acá, o se crea sola con tu primera compra.',
+  createCta: 'Generar mi tarjeta',
+  creating: 'Generando tu tarjeta…',
+  createError: 'No pudimos generar tu tarjeta ahora. Probá de nuevo en un rato.',
   error: 'No pudimos leer tu tarjeta ahora. Probá de nuevo en un rato.',
   balanceLabel: 'Saldo',
   frozen: 'Está bloqueada y por ahora no se puede usar.',
