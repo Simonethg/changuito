@@ -40,8 +40,32 @@
  * thing as a 404 here, so "the store does not know this cart" is not an answer
  * this endpoint can give, and nothing may be inferred from a cart being empty
  * on its own.
+ *
+ * A fourth, checked 2026-09-27: **the endpoint is not section-filtered.** A
+ * plain GET with no `?sections=` returns the whole document — `totalizers`,
+ * `shippingData`, `paymentData`, `messages` and all — to a caller with no
+ * session. That is what makes `payable`, `breakdown` and `slotChosen` below
+ * readable at all, and it is why this file now parses the document with the
+ * MCP package's own `payableTotal` / `classifyOrderForm` instead of picking
+ * three fields out of it by hand. (On an empty cart those sections come back
+ * empty rather than absent, so every reader here treats empty as "not yet".)
  */
+import {
+  classifyOrderForm,
+  payableTotal,
+  totalizerBreakdown,
+  type CheckoutState,
+  type VtexOrderForm,
+} from '@changuito/mcp/orderform';
+
 import { STOREFRONT_HOSTS } from './storefront.ts';
+
+/** One totalizer line, as the store names it: Productos, Envío, Descuentos. */
+export interface TotalLine {
+  id: string;
+  name: string;
+  centavos: number;
+}
 
 export interface OrderFormState {
   /** A profile is attached to this cart. A hint about login, never the profile. */
@@ -70,6 +94,46 @@ export interface OrderFormState {
    * to a cart that a real person had been using.
    */
   looksPaid: boolean;
+  /**
+   * Items plus envío plus descuentos, in centavos. **The number the súper will
+   * actually charge**, which is not the number `value` used to be read for and
+   * not the goods subtotal `Cart.total` carries.
+   *
+   * This is the whole reason the rest of the document is now read. The deposit
+   * used to be quoted before a delivery slot existed, so the shipping line was
+   * not in it and the FX buffer was quietly absorbing the difference.
+   */
+  payable: number;
+  /**
+   * `payable` split the way the store splits it, ready to print. Empty when
+   * the store sent no totalizers — an empty cart, or one it has not priced
+   * yet — in which case the caller shows the total alone rather than a table
+   * with nothing in it.
+   */
+  breakdown: TotalLine[];
+  /**
+   * Every delivery group has a `selectedSla`: the shopper has chosen how this
+   * arrives, so the shipping line is settled and `payable` will not move for
+   * that reason. False while any group is unchosen **and** while the store has
+   * told us nothing about delivery at all, because "we do not know" and "not
+   * yet" lead to the same place: do not quote.
+   */
+  slotChosen: boolean;
+  /**
+   * Present only once the order exists. The one unambiguous success signal in
+   * the document — unlike `looksPaid`, this is not circumstantial.
+   */
+  orderGroup: string | null;
+  /**
+   * Which section the store is waiting on, from the checkout classifier.
+   * `null` when the document says nothing conclusive.
+   *
+   * **Only the state crosses out of this function** — never the verdict's
+   * `why`, which embeds the orderGroup, and never its `problems`, which carry
+   * store-authored message text and item names. `CheckoutState` is a closed
+   * union of literals and cannot carry anything it was not built from.
+   */
+  state: CheckoutState | null;
 }
 
 /** How many items the cart had when we handed it over, so `looksPaid` has a before. */
@@ -116,17 +180,47 @@ export async function readOrderForm(
   if (!body || typeof body !== 'object') return null;
   const form = body as Record<string, unknown>;
 
+  const of = form as VtexOrderForm;
+
   // Read, test, drop. The profile object is never bound to a name that leaves
   // this scope — see rule 1 in the header.
-  const identified = form.clientProfileData !== null && typeof form.clientProfileData === 'object';
+  //
+  // `clientProfileData?.email` and not `clientProfileData !== null`: VTEX
+  // creates the profile object before it is filled in, the same way it creates
+  // the address object, so the old check read an empty shell as a signed-in
+  // shopper. The email is what `classifyOrderForm` keys its `profile` state on
+  // and it is the field that actually appears at login.
+  const identified = Boolean(
+    form.clientProfileData &&
+      typeof form.clientProfileData === 'object' &&
+      typeof (form.clientProfileData as { email?: unknown }).email === 'string' &&
+      (form.clientProfileData as { email: string }).email.length > 0,
+  );
   const items = Array.isArray(form.items) ? form.items.length : 0;
   const value = typeof form.value === 'number' ? form.value : 0;
+
+  const orderGroup = typeof form.orderGroup === 'string' && form.orderGroup ? form.orderGroup : null;
+  const verdict = classifyOrderForm(of);
+
+  // Every group chosen, and at least one group to choose. An absent
+  // `logisticsInfo` is "the store has not said", which must not read as done —
+  // quoting there is exactly the bug this change exists to fix.
+  const groups = of.shippingData?.logisticsInfo ?? [];
+  const slotChosen = groups.length > 0 && groups.every((g) => Boolean(g.selectedSla));
 
   return {
     identified,
     items,
     value,
-    looksPaid: probe.itemsAtHandoff > 0 && items === 0 && identified,
+    // An order that exists is proof. The three-part heuristic below stays as
+    // the fallback for a store that does not hand `orderGroup` to a reader
+    // with no session.
+    looksPaid: orderGroup !== null || (probe.itemsAtHandoff > 0 && items === 0 && identified),
+    payable: payableTotal(of),
+    breakdown: totalizerBreakdown(of),
+    slotChosen,
+    orderGroup,
+    state: verdict?.state ?? null,
   };
 }
 

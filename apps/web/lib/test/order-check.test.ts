@@ -34,6 +34,35 @@ const identified = {
   },
 };
 
+/**
+ * The same cart once a delivery has been picked, which is the state the
+ * checkout now waits for before it quotes anything.
+ *
+ * `value` is 630000 against an Items totalizer of 615000: the difference is
+ * the $150,00 envío, and the whole point of reading this document is that the
+ * two numbers are not the same. `payableTotal` prefers `value`.
+ *
+ * The address carries a street and a postal code because a VTEX address
+ * object exists before it is filled in and the classifier checks for a usable
+ * one — a shell here would classify as `address` and never reach the slot.
+ */
+const slotted = {
+  ...identified,
+  totalizers: [
+    { id: 'Items', name: 'Total de los produtos', value: 615000 },
+    { id: 'Shipping', name: 'Total do frete', value: 15000 },
+  ],
+  value: 630000,
+  shippingData: {
+    address: { street: 'Av. Siempreviva', number: '742', postalCode: 'C1425' },
+    logisticsInfo: [{ itemIndex: 0, selectedSla: 'Entrega Programada' }],
+  },
+  paymentData: { payments: [] },
+};
+
+/** Placed. `orderGroup` is the one unambiguous success signal in the document. */
+const placed = { ...slotted, orderGroup: '1664787669574', items: [], value: 0 };
+
 function stub(body: unknown, status = 200): typeof fetch {
   return (async () =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as typeof fetch;
@@ -47,6 +76,64 @@ describe('reading a cart from outside it', () => {
     assert.equal(state?.identified, false);
     assert.equal(state?.items, 2);
     assert.equal(state?.value, 615000);
+    assert.equal(state?.state, 'profile');
+  });
+
+  it('RULE: a profile shell is not a signed-in shopper', async () => {
+    // VTEX creates `clientProfileData` before it is filled in, so the old
+    // `!== null` check read an empty object as somebody being logged in — and
+    // `identified` is what the checkout waits on before it asks about the
+    // delivery. An empty email is the classifier's own test, so the two
+    // cannot disagree about what "signed in" means.
+    const shell = { ...anonymous, clientProfileData: { email: '', firstName: null } };
+    assert.equal((await readOrderForm(probe, stub(shell)))?.identified, false);
+  });
+
+  it('waits for the delivery, then reports the total with the envío in it', async () => {
+    // The bug this whole reading exists to fix: `value` is the payable total
+    // and the Items totalizer is not, and quoting the second one charges the
+    // shopper for a basket with no flete in it.
+    const before = await readOrderForm(probe, stub(identified));
+    assert.equal(before?.slotChosen, false);
+    assert.equal(before?.state, 'address');
+
+    const after = await readOrderForm(probe, stub(slotted));
+    assert.equal(after?.slotChosen, true);
+    assert.equal(after?.payable, 630000);
+    assert.deepEqual(after?.breakdown, [
+      { id: 'Items', name: 'Total de los produtos', centavos: 615000 },
+      { id: 'Shipping', name: 'Total do frete', centavos: 15000 },
+    ]);
+  });
+
+  it('RULE: one unslotted group is enough to keep waiting', async () => {
+    // Every group has to have a slot, not most of them. A cart split across
+    // two deliveries quotes the second one's shipping only once it is picked.
+    const half = {
+      ...slotted,
+      shippingData: {
+        ...slotted.shippingData,
+        logisticsInfo: [{ itemIndex: 0, selectedSla: 'Entrega Programada' }, { itemIndex: 1, selectedSla: null }],
+      },
+    };
+    const state = await readOrderForm(probe, stub(half));
+    assert.equal(state?.slotChosen, false);
+    assert.equal(state?.state, 'shipping_slot');
+  });
+
+  it('RULE: no logistics groups at all is not a chosen delivery', async () => {
+    // The store handing us nothing must never read as "settled" — that is the
+    // dead-flow case, and it is what the escape hatch in the checkout covers.
+    const none = { ...slotted, shippingData: { ...slotted.shippingData, logisticsInfo: [] } };
+    assert.equal((await readOrderForm(probe, stub(none)))?.slotChosen, false);
+  });
+
+  it('carries the order id once the order exists', async () => {
+    const state = await readOrderForm(probe, stub(placed));
+    assert.equal(state?.orderGroup, '1664787669574');
+    assert.equal(state?.state, 'confirmation');
+    // orderGroup is real evidence, unlike the emptied-cart heuristic below.
+    assert.equal(state?.looksPaid, true);
   });
 
   it('notices once a profile is attached', async () => {
@@ -63,7 +150,29 @@ describe('reading a cart from outside it', () => {
     for (const secret of ['someone@example.com', 'Ana', '30123456', 'dni']) {
       assert.equal(serialised.includes(secret), false, secret);
     }
-    assert.deepEqual(Object.keys(state!).sort(), ['identified', 'items', 'looksPaid', 'value']);
+    assert.deepEqual(
+      Object.keys(state!).sort(),
+      ['breakdown', 'identified', 'items', 'looksPaid', 'orderGroup', 'payable', 'slotChosen', 'state', 'value'],
+    );
+  });
+
+  it('RULE: nothing about the address comes back either, and nor does the why', async () => {
+    // The reading grew five fields when the checkout started quoting from it,
+    // and two of them are the ones to watch. `breakdown` carries strings the
+    // store wrote, so it is checked against a document that has an address in
+    // it as well as a profile. And only `verdict.state` crosses out of here:
+    // `why` embeds the orderGroup and `collectProblems` embeds store messages
+    // and item names, neither of which anybody upstream asked for.
+    const state = await readOrderForm(probe, stub(slotted));
+    const serialised = JSON.stringify(state);
+    for (const secret of ['someone@example.com', 'Ana', '30123456', 'Siempreviva', '742', 'C1425']) {
+      assert.equal(serialised.includes(secret), false, secret);
+    }
+    // The state is one of a closed set of literals; it cannot carry anything
+    // it was not built from.
+    assert.equal(serialised.includes('selectedSla'), false);
+    assert.equal(serialised.includes('confidence'), false);
+    assert.equal(serialised.includes('layer'), false);
   });
 
   it('an emptied cart with a profile on it looks paid', async () => {
@@ -108,7 +217,17 @@ describe('reading a cart from outside it', () => {
 
   it('survives a body missing the fields it reads', async () => {
     const state = await readOrderForm(probe, stub({ orderFormId: ID }));
-    assert.deepEqual(state, { identified: false, items: 0, value: 0, looksPaid: false });
+    assert.deepEqual(state, {
+      identified: false,
+      items: 0,
+      value: 0,
+      looksPaid: false,
+      payable: 0,
+      breakdown: [],
+      slotChosen: false,
+      orderGroup: null,
+      state: 'empty_cart',
+    });
   });
 });
 

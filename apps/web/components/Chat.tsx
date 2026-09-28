@@ -19,7 +19,7 @@ import {
 } from '../lib/login-constants';
 import { pollarEnabled } from '../lib/pollar';
 import { ensureUserCookie } from '../lib/session-login';
-import { storeOrdersUrl } from '../lib/storefront.ts';
+import { storeOrderUrl, storeOrdersUrl } from '../lib/storefront.ts';
 import { progressCopy } from '../lib/turn-progress.ts';
 import { uiCopy } from '../lib/ui-copy.ts';
 import { useChat } from '../lib/use-chat';
@@ -459,7 +459,11 @@ function ChatCore({
 function ReceiptCard({ receipt }: { receipt: Receipt }) {
   const lang = useLang();
   const copy = uiCopy(lang).chat;
-  const ordersUrl = storeOrdersUrl(receipt.retailer);
+  // The order's own page when the store named it, the orders list when it did
+  // not. Either link opens properly; the list is one tap further.
+  const ordersUrl =
+    (receipt.orderRef ? storeOrderUrl(receipt.retailer, receipt.orderRef) : null) ??
+    storeOrdersUrl(receipt.retailer);
   return (
     <section className="card receipt" data-testid="receipt" aria-label={copy.receiptAria}>
       <header className="receipt-head">

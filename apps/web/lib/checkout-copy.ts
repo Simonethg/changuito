@@ -115,6 +115,54 @@ export interface CheckoutCopy {
   unreachable: string;
   /** Says what went wrong and what happens next, with no automatic remedy implied. */
   failed: string;
+
+  /* ----------------------------------------------- the three steps, in order
+   *
+   * The dialog used to take the money first and show the súper second, so
+   * there was nothing to number. Now the frame comes up first and the shopper
+   * does three things in it, which is worth saying out loud on screen: most of
+   * the confusion in testing was somebody not knowing whether it was their
+   * turn to act or ours.
+   */
+  /** Rail label. */
+  stepLogin: string;
+  /** Rail label. */
+  stepDelivery: string;
+  /** Rail label. */
+  stepPay: string;
+  /**
+   * After the "abrir en una pestaña" button while they are not recognised yet.
+   * The tab is a different window and nothing brings them back from it, so the
+   * copy has to. */
+  loginReturn: string;
+  /** Under the rail at step 2: pick a delivery and the importe appears. */
+  deliveryLead: string;
+  /** While we are watching for the slot. Says who is waiting on whom. */
+  deliveryWaiting: string;
+  /**
+   * The escape hatch, shown only after a long wait with no slot. Some stores
+   * do not show a reader with no session which delivery was chosen, and the
+   * shopper should not be stuck behind a signal we cannot get. */
+  deliveryDoneCta: string;
+  /** Totals table. The store's own names are used when it sends them. */
+  itemsLabel: string;
+  shippingLabel: string;
+  totalLabel: string;
+  /** Above the importe: this is the exact number, envío included. */
+  payLead: string;
+  /** The total moved at the súper after the shopper had already paid. */
+  driftTitle: string;
+  driftPaid: string;
+  driftNow: string;
+  /** Never an accusation, and never a promise of a refund nobody automated. */
+  driftLead: string;
+  /**
+   * Above the card at the last step. Says what to pay with it — **never that
+   * it was loaded or topped up**, because on this deployment nothing was: the
+   * card is loaded by hand and this flow does not touch it. */
+  cardReadyLead: string;
+  /** The rehearsal is not reading a real súper and should not imply it is. */
+  rehearsalNote: string;
 }
 
 const COMMON = {
@@ -134,7 +182,7 @@ const COMMON = {
   walletPayNote: '',
   walletPayError: '',
   walletPayShort: '',
-  checkoutTitle: 'Paso 2: pagá en el súper',
+  checkoutTitle: 'Pagá en el súper',
   checkoutLead: 'Esta es la página del súper, tal cual. Nosotros no vemos lo que pasa adentro.',
   loginLead: 'Para pagar necesitás entrar a tu cuenta del súper. Se abre en una pestaña aparte, en la página del súper, con la barra de direcciones a la vista.',
   loginCta: 'Entrar a mi cuenta del súper',
@@ -159,6 +207,24 @@ const COMMON = {
   otpWaiting: 'Si el súper te pide un código para confirmar, aparece acá.',
   otpLead: 'Ponelo en el formulario del súper antes de que venza.',
   otpExpired: 'Ese código venció. Pedí uno nuevo desde el formulario del súper y esperá acá.',
+  stepLogin: 'Entrá a tu cuenta',
+  stepDelivery: 'Elegí el envío',
+  stepPay: 'Pagá el importe',
+  loginReturn:
+    'Cuando termines, volvé acá. Da lo mismo si seguís en la pestaña o acá adentro: el súper nos muestra el mismo changuito.',
+  deliveryLead: 'Elegí cuándo y cómo te llega. Recién ahí sabemos el importe exacto, con el envío adentro.',
+  deliveryWaiting: 'Esperando que elijas el envío en el súper…',
+  deliveryDoneCta: 'Ya elegí el envío',
+  itemsLabel: 'Productos',
+  shippingLabel: 'Envío',
+  totalLabel: 'Total',
+  payLead: 'Este es el importe exacto del súper, con el envío adentro.',
+  driftTitle: 'El total cambió en el súper',
+  driftPaid: 'Pagaste',
+  driftNow: 'Ahora dice',
+  driftLead: 'Revisá el changuito antes de pagar en el súper. Si no te cierra, escribinos.',
+  cardReadyLead: 'Usá esta tarjeta en el formulario del súper para pagar ese importe.',
+  rehearsalNote: '',
 } as const;
 
 const PRUEBA: CheckoutCopy = {
@@ -167,7 +233,7 @@ const PRUEBA: CheckoutCopy = {
   // has anywhere to send it *from* — that is the whole shape of preview — so
   // the sentence now says who pays, because "es una prueba" alone leaves a
   // reader wondering what they are about to be charged.
-  depositTitle: 'Paso 1: el importe',
+  depositTitle: 'El importe',
   depositLead: 'Es una prueba y la ponemos nosotros: tocá el botón y seguimos.',
   demoPayCta: 'Pagar con nuestra plata',
   demoPayWorking: 'Pagando…',
@@ -183,6 +249,7 @@ const PRUEBA: CheckoutCopy = {
   cardFunded: 'Tiene justo el importe de esta compra y no se puede usar para otra cosa.',
   refundNote: 'Es una prueba, así que no se mueve plata real.',
   failed: 'Algo salió mal. Como es una prueba, no hay nada que devolver.',
+  rehearsalNote: 'Es una prueba: no estamos mirando un súper de verdad, así que el importe sale del changuito.',
 };
 
 const REAL: CheckoutCopy = {
@@ -192,7 +259,7 @@ const REAL: CheckoutCopy = {
   // into another to reach an account we control, when the balance on screen
   // could simply pay. So the title stops issuing an instruction and the lead
   // names both ways, in the order they are offered.
-  depositTitle: 'Paso 1: el importe',
+  depositTitle: 'El importe',
   depositLead: 'Se paga con los dólares que tenés en tu cuenta. Si los tenés en otro lado, también podés mandarlos a mano.',
   walletPayCta: 'Pagar con mis dólares',
   walletPayWorking: 'Pagando…',
@@ -281,7 +348,7 @@ const COMMON_EN = {
   walletPayNote: '',
   walletPayError: '',
   walletPayShort: '',
-  checkoutTitle: 'Step 2: pay at the store',
+  checkoutTitle: 'Pay at the store',
   checkoutLead: "This is the store's own page, exactly as it is. We cannot see what happens inside it.",
   loginLead:
     "To pay you need to sign in to your store account. It opens in a separate tab, on the store's own page, with the address bar in view.",
@@ -308,11 +375,30 @@ const COMMON_EN = {
   otpWaiting: 'If the store asks for a code to confirm, it appears here.',
   otpLead: "Put it in the store's form before it expires.",
   otpExpired: "That code expired. Ask for a new one from the store's form and wait here.",
+  stepLogin: 'Sign in',
+  stepDelivery: 'Choose delivery',
+  stepPay: 'Pay the amount',
+  loginReturn:
+    'When you are done, come back here. It makes no difference whether you carry on in the tab or in here — the store shows us the same cart.',
+  deliveryLead:
+    'Choose when and how it arrives. Only then do we know the exact amount, delivery included.',
+  deliveryWaiting: 'Waiting for you to choose delivery at the store…',
+  deliveryDoneCta: "I've chosen delivery",
+  itemsLabel: 'Items',
+  shippingLabel: 'Delivery',
+  totalLabel: 'Total',
+  payLead: "This is the store's exact amount, delivery included.",
+  driftTitle: 'The total changed at the store',
+  driftPaid: 'You paid',
+  driftNow: 'Now it says',
+  driftLead: 'Check the cart before paying at the store. If it does not add up, write to us.',
+  cardReadyLead: "Use this card in the store's form to pay that amount.",
+  rehearsalNote: '',
 } as const;
 
 const PRACTICE_EN: CheckoutCopy = {
   ...COMMON_EN,
-  depositTitle: 'Step 1: the amount',
+  depositTitle: 'The amount',
   depositLead: "This is practice and we're paying: press the button and we'll carry on.",
   demoPayCta: 'Pay with our money',
   demoPayWorking: 'Paying…',
@@ -328,11 +414,13 @@ const PRACTICE_EN: CheckoutCopy = {
   cardFunded: "It holds exactly this purchase's amount and cannot be used for anything else.",
   refundNote: "This is practice, so no real money moves.",
   failed: "Something went wrong. Since this is practice, there's nothing to refund.",
+  rehearsalNote:
+    "This is practice: we aren't reading a real store, so the amount comes from the cart.",
 };
 
 const LIVE_EN: CheckoutCopy = {
   ...COMMON_EN,
-  depositTitle: 'Step 1: the amount',
+  depositTitle: 'The amount',
   depositLead:
     'It comes out of the dollars in your account. If you keep them somewhere else, you can also send them by hand.',
   walletPayCta: 'Pay with my dollars',

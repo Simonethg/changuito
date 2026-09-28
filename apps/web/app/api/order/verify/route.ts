@@ -18,8 +18,29 @@
  * taking the browser's word for a purchase, which is the one thing the whole
  * cross-origin design is trying not to do. So: the button is necessary, this
  * is corroboration, and `verified` says which of the two we got.
+ *
+ * `orderRef` is the exception to all of the above. It is derived from
+ * `orderGroup`, which only exists once the order does, so when it is present
+ * the store is not corroborating anything — it is telling us the order was
+ * placed. Copy may say so in that case and only in that case.
+ *
+ * ## It now carries a money figure, which it deliberately did not before
+ *
+ * This route used to hand back no amount at all, on the grounds that a
+ * verification endpoint has no business naming one. That changed because the
+ * checkout was reordered: the shopper is quoted **after** they pick a delivery
+ * slot, so the exact payable total — items plus envío plus descuentos — has to
+ * come from here, read server-side, rather than from a figure the browser
+ * hands up about itself.
+ *
+ * `payable` is the shopper's own cart total, read from the cart id they are
+ * already holding, and it is the number they are about to be asked to approve.
+ * It is not a payment, a balance, or anything about an account. What still
+ * does not cross this boundary is the profile: no email, no name, no DNI, and
+ * no verdict text — see `lib/order-check.ts` for which fields are dropped and
+ * why.
  */
-import { orderFormIdFrom, readOrderForm } from '../../../../lib/order-check.ts';
+import { orderFormIdFrom, readOrderForm, type TotalLine } from '../../../../lib/order-check.ts';
 import { requireHuman } from '../../../../lib/human-gate.ts';
 
 export const runtime = 'nodejs';
@@ -34,6 +55,14 @@ export interface VerifyResponse {
   items: number;
   /** True when we could not reach the store at all, as opposed to reaching it and disagreeing. */
   unknown: boolean;
+  /** Items + envío + descuentos, in centavos. What the súper will charge. 0 when unknown. */
+  payable: number;
+  /** `payable` as the store breaks it down. Empty when it sent no totalizers. */
+  breakdown: TotalLine[];
+  /** The shopper has chosen a delivery for every group, so the envío line is settled. */
+  slotChosen: boolean;
+  /** The placed order's id at the store, once it exists. Real evidence, unlike `verified`. */
+  orderRef: string | null;
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -61,7 +90,16 @@ export async function POST(req: Request): Promise<Response> {
   if (!state) {
     // Unreachable is not "unpaid". The shopper is the one who knows, and the
     // flow continues on their word — this only failed to corroborate it.
-    const body: VerifyResponse = { verified: false, identified: false, items: itemsAtHandoff, unknown: true };
+    const body: VerifyResponse = {
+      verified: false,
+      identified: false,
+      items: itemsAtHandoff,
+      unknown: true,
+      payable: 0,
+      breakdown: [],
+      slotChosen: false,
+      orderRef: null,
+    };
     return Response.json(body);
   }
 
@@ -70,6 +108,27 @@ export async function POST(req: Request): Promise<Response> {
     identified: state.identified,
     items: state.items,
     unknown: false,
+    payable: state.payable,
+    breakdown: state.breakdown,
+    slotChosen: state.slotChosen,
+    orderRef: orderRefFrom(state.orderGroup),
   };
   return Response.json(out);
+}
+
+/**
+ * The store's own order id, from the order group.
+ *
+ * VTEX names an order `{orderGroup}-{seller index}`, and a single-seller store
+ * only ever produces `-01`. All four storefronts here are single seller, and
+ * the one real example we have — an order placed by hand on Día — was
+ * `1664787669574-01`. **The suffix is inferred, not verified against the API**,
+ * which cannot name an order to an unauthenticated caller at all.
+ *
+ * That is survivable because it is only ever used to build a link, and the
+ * caller falls back to the orders list when this is null. A wrong suffix costs
+ * one tap, not a wrong order.
+ */
+function orderRefFrom(orderGroup: string | null): string | null {
+  return orderGroup ? `${orderGroup}-01` : null;
 }

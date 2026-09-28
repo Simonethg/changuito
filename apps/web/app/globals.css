@@ -821,6 +821,76 @@ a:hover { color: var(--chg-arcilla); }
 .ck-waiting { margin: 0; font-size: 13px; color: var(--muted); }
 .ck-ok { margin: 0; font-size: 13px; color: var(--ok); }
 
+/* The three steps, and which one the shopper is on.
+
+   A list rather than three divs because that is what it is, and because a
+   screen reader reading "1 of 3" out of an <ol> is the whole point of the
+   rail: the complaint it answers is a shopper who was asked for money first
+   and only then discovered there were two more things to do.
+
+   It wraps rather than scrolls. At 360px the three labels take two lines and
+   two lines of text is a better narrow-screen answer than a horizontal
+   scrollbar on a strip nobody thinks to drag. */
+.ck-rail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ck-rail-step { display: flex; align-items: center; gap: 7px; }
+/* Tabular and fixed-width so the three circles line up whatever the label
+   beside them does when it wraps. */
+.ck-rail-n {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ck-rail-now { color: var(--fg); font-weight: 600; }
+.ck-rail-now .ck-rail-n { border-color: var(--fg); color: var(--fg); }
+.ck-rail-done { color: var(--ok); }
+.ck-rail-done .ck-rail-n { border-color: var(--ok); color: var(--ok); }
+
+.ck-delivery { display: flex; flex-direction: column; gap: 8px; }
+.ck-pay { display: flex; flex-direction: column; gap: 12px; }
+
+/* Productos / Envío / Total. The envío row is the reason this exists: the
+   shopper is being asked to approve a number, and a number with no visible
+   flete in it is the bug the whole reorder is about.
+
+   Right-aligned and tabular, so the pesos columns line up and the total reads
+   as the sum of what is above it rather than as another row. */
+.ck-totals { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.ck-total-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ck-total-line dt { font-size: 13px; color: var(--muted); }
+.ck-total-line dd { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ck-total-sum { border-top: 1px solid var(--border); padding-top: 6px; }
+.ck-total-sum dt { color: var(--fg); }
+.ck-total-sum dd { font-size: 16px; font-weight: 600; }
+
+/* The store moved its own total after the shopper was quoted. Boxed and warn-
+   coloured because it is the one thing on this screen that has to be read
+   before the card under it is used — and it names both figures rather than
+   only the new one, because the shopper's question is "what did I pay?". */
+.ck-drift {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--warn);
+  border-radius: 12px;
+  padding: 12px;
+}
+
 .ck-login { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
 .ck-login-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .ck-login-actions .btn { flex: 1 1 auto; min-width: 140px; text-align: center; }

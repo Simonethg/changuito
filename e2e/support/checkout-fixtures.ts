@@ -48,6 +48,19 @@ export const OTP_CODE = '558102';
 
 const money = (centavos: number, display: string) => ({ centavos, display });
 
+/**
+ * What the súper says the delivery costs, and the total with it in.
+ *
+ * These only matter on the paths where the store is read — which the rehearsal
+ * is not, so the spec never sees them on screen. They are here so the
+ * `/api/order/verify` mock is the shape the route actually returns rather than
+ * the shape it returned before the reorder.
+ */
+export const SHIPPING_CENTAVOS = 120000;
+export const PAYABLE_CENTAVOS = 515000 + SHIPPING_CENTAVOS;
+/** `${orderGroup}-01`, the id the receipt links to. See lib/storefront.ts. */
+export const ORDER_REF = '1664787669574-01';
+
 export const PRODUCTS: Product[] = [
   {
     skuId: '31415',
@@ -261,7 +274,23 @@ export function installCheckoutMocks(page: Page): MockCalls {
 
   void page.route('**/api/order/verify', async (route) => {
     calls.verify += 1;
-    await json(route, { verified: true, identified: true, items: 0, unknown: false });
+    await json(route, {
+      verified: true,
+      identified: true,
+      items: 0,
+      unknown: false,
+      // The four fields the route grew when the checkout started quoting from
+      // the store instead of from the basket. The modal reads `breakdown` and
+      // `payable` off every answer, so a mock still returning the old shape is
+      // a mock that throws — the drift this file's header warns about.
+      payable: PAYABLE_CENTAVOS,
+      breakdown: [
+        { id: 'Items', name: 'Total de los produtos', centavos: CART.total.centavos },
+        { id: 'Shipping', name: 'Total do frete', centavos: SHIPPING_CENTAVOS },
+      ],
+      slotChosen: true,
+      orderRef: ORDER_REF,
+    });
   });
 
   return calls;

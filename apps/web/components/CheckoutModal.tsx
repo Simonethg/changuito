@@ -4,6 +4,7 @@ import type { SendPaymentParams, SubmitOutcome } from '@pollar/core';
 import { usePollar } from '@pollar/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { formatARS } from '@changuito/mcp/money';
 import type { Cart } from '@changuito/mcp/types';
 
 import type { DepositIntent, DepositStatus } from '../app/api/deposit/route.ts';
@@ -13,7 +14,7 @@ import { appMode } from '../lib/app-mode.ts';
 import type { Receipt } from '../lib/chat-store.ts';
 import { checkoutCopy } from '../lib/checkout-copy.ts';
 import { DEFAULT_NETWORK } from '../lib/deployments.ts';
-import { pollarEnabledOn } from '../lib/pollar.ts';
+import { pollarEnabled, pollarEnabledOn } from '../lib/pollar.ts';
 import { realModeNeedsProof } from '../lib/real-mode.ts';
 import { isFramableCheckout, STOREFRONT_HOSTS } from '../lib/storefront.ts';
 import { uiCopy } from '../lib/ui-copy.ts';
@@ -28,8 +29,30 @@ import { useLang } from './LangProvider';
 import { useNetwork } from './NetworkProvider';
 
 /**
- * The two steps between a full basket and a receipt: send the importe, then
- * pay at the store in a frame.
+ * From a full basket to a receipt, in the order the money actually allows:
+ * sign in at the store, pick a delivery, and only then send the importe.
+ *
+ * ## Why the frame comes first
+ *
+ * It ran the other way round — importe, then frame — and that quoted the
+ * wrong number. `cart.total` is the goods subtotal by design (`toCart` in
+ * @changuito/mcp says so: it is the figure the search and price tools mean),
+ * so the shopper was charged before a delivery slot existed and for an amount
+ * with no envío in it. The only thing absorbing the difference was the 15% FX
+ * buffer in `POST /api/deposit`, which is sized for card-network rate drift
+ * and not for flete.
+ *
+ * So the frame is mounted on the first render and never unmounted —
+ * re-mounting reloads the store's checkout and loses whatever the shopper has
+ * typed into it — and what changes is the panel above it. `Stage` below is
+ * **derived**, never set: there is no state machine to get out of step with
+ * what the store says.
+ *
+ * The importe is quoted the moment the store reports a chosen delivery, from
+ * `payableTotal()` read server-side off the store's own cart. Reading is
+ * automatic; **taking the money never is.** `payWithMyWallet` is reachable
+ * only from a press, and the address-and-código path stays for the shopper
+ * who would rather send it themselves.
  *
  * ## Why the login is not in the frame
  *
@@ -150,10 +173,21 @@ interface Props {
  * dialog on its own. The same split WalletWidget and PaymentModal make — but
  * ending in the dialog either way rather than in `null`, because checkout in
  * modo prueba has never needed a wallet and must not start now.
+ *
+ * **Both halves of the gate, and the first one is the one that bites.**
+ * `pollarEnabled` is the question `WalletProvider` answered when it decided
+ * whether to mount — it asks about LOGIN_NETWORK, i.e. the mainnet key — and a
+ * consumer that asks a *different* question can find itself inside the branch
+ * with no provider above it. That is not hypothetical: a build with a testnet
+ * key and no mainnet key has `pollarEnabledOn('testnet')` true and no provider,
+ * which is `usePollar must be used inside <PollarProvider>` on the first render
+ * of this dialog. So: is there a provider, *and* can a wallet pay on the
+ * network being shown. `PaymentModal` gates on the second alone and has the
+ * same hole.
  */
 export function CheckoutModal(props: Props) {
   const { network } = useNetwork();
-  return pollarEnabledOn(network) ? (
+  return pollarEnabled && pollarEnabledOn(network) ? (
     <CheckoutWithWallet {...props} />
   ) : (
     <CheckoutDialog {...props} address={null} sign={null} pay={null} />
@@ -184,7 +218,15 @@ interface DialogProps extends Props {
   pay: WalletPay | null;
 }
 
-type Step = 'deposit' | 'checkout';
+/**
+ * Which of the four things the shopper is doing, derived from what the store
+ * and the ledger say — never assigned.
+ *
+ * `intent` is the latch between `delivery` and `pay`: once an importe has been
+ * quoted the panel does not slide backwards because the store changed its
+ * mind. That case is the drift warning at `card`, not a second quote.
+ */
+type Stage = 'login' | 'delivery' | 'pay' | 'card';
 
 /** 4s: fast enough to feel live, slow enough that a long wait is not a flood. */
 const DEPOSIT_POLL_MS = 4_000;
@@ -197,6 +239,18 @@ const WATCH_POLL_MS = 10_000;
 /** 5s for the first minute, then 10s — about ten minutes of watching in all. */
 const IDENTIFY_MAX = 12;
 const WATCH_MAX = IDENTIFY_MAX + 54;
+/**
+ * How long a signed-in shopper may sit with no delivery slot before the
+ * escape hatch appears.
+ *
+ * The automatic path depends on the store handing `shippingData.logisticsInfo`
+ * to a reader with no session. It did when this was probed against Día on
+ * 2026-09-27, and that is a fact about someone else's CDN rather than a
+ * contract — so after a minute and a half the shopper is offered a button that
+ * says they have already chosen. It only ever skips the *wait*: the figure is
+ * still read from the store, server-side. See `settled` in POST /api/deposit.
+ */
+const SLOT_PATIENCE_MS = 90_000;
 
 function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, sign, pay }: DialogProps) {
   const { network } = useNetwork();
@@ -208,7 +262,6 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
   // address — which is right, because a guest cannot be in a gated mode.
   const mode = useNetworkAccess(address)?.[network].mode ?? null;
 
-  const [step, setStep] = useState<Step>('deposit');
   const [intent, setIntent] = useState<DepositIntent | null>(null);
   const [mintError, setMintError] = useState<string | null>(null);
   const [deposit, setDeposit] = useState<DepositStatus | null>(null);
@@ -233,7 +286,19 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
   // preview checkout.
   const { data: balance } = useBalances(address, network);
 
+  // What the store says about the shopper's own cart, read server-side by
+  // cart id. Every one of these is set by the watcher below and by nothing
+  // else — the browser observes the store, it never asserts anything about it.
   const [identified, setIdentified] = useState(false);
+  const [slotChosen, setSlotChosen] = useState(false);
+  /** Items / Envío / Descuentos as the store names them, frozen at quote time. */
+  const [breakdown, setBreakdown] = useState<VerifyResponse['breakdown']>([]);
+  /** The store's live payable total. Kept fresh *after* the quote, for drift. */
+  const [payable, setPayable] = useState(0);
+  /** The order's own id once it exists, for the receipt's link. */
+  const [orderRef, setOrderRef] = useState<string | null>(null);
+  /** The shopper saying they picked a delivery the store did not report. */
+  const [slotForced, setSlotForced] = useState(false);
   const [polls, setPolls] = useState(0);
   const [verifying, setVerifying] = useState(false);
   const [verdict, setVerdict] = useState<VerifyResponse | null>(null);
@@ -255,6 +320,37 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
     : null;
 
   const itemsAtHandoff = cart.lines.filter((l) => l.available).length;
+
+  // Whether there is a real store cart behind this checkout for the server to
+  // read. False in the rehearsal, whose fixture has no orderForm at all, and
+  // false for a basket that never got a handoff link.
+  const storeReadable = !rehearsal && Boolean(handoffUrl);
+  // Whether there is a store to sign into at all — a real one, or the fixture
+  // standing in for it. Against a real cart `identified` comes from the
+  // watcher; against the fixture, which carries no profile to read, "Ya
+  // ingresé" is the whole mechanism and always was.
+  const hasStore = storeReadable || frameSrc !== null;
+  const signedIn = !hasStore || identified;
+  // Only a real cart has a delivery for the store to report one way or the
+  // other. The rehearsal skips this step rather than faking a slot it has no
+  // way to have: see the note it prints beside the importe.
+  const slotReady = !storeReadable || slotChosen || slotForced;
+  /** The one gate on quoting: the store knows who they are and where it goes. */
+  const quoteReady = signedIn && slotReady;
+
+  // When the store first recognised the shopper, so the escape hatch can be
+  // offered a minute and a half later. A ref because it is written once and
+  // the watcher's ticks are what re-render this; see SLOT_PATIENCE_MS.
+  const identifiedAt = useRef<number | null>(null);
+  useEffect(() => {
+    if (identified && identifiedAt.current === null) identifiedAt.current = Date.now();
+  }, [identified]);
+
+  // Read by the watcher, which must not tear its timer down when a quote
+  // lands. It stops refreshing the breakdown at that point: the split the
+  // shopper approved is the one that was true when they were asked.
+  const intentRef = useRef<DepositIntent | null>(null);
+  intentRef.current = intent;
 
   // A ref because giving the card back is not a render, and because the
   // pagehide listener below has to read the latest value without being torn
@@ -298,7 +394,16 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
     onClose();
   }, [release, onClose]);
 
-  // Mint once. A second mint would hand the shopper a second código for the
+  // Quote once, and only once the store can be asked what the quote is.
+  //
+  // This used to run on mount, which is the bug at the top of this file: it
+  // priced the basket before a delivery slot existed. `quoteReady` is the
+  // whole change — the store has to say it knows the shopper and knows where
+  // the order is going, and then the server reads the figure off the store's
+  // own cart. Quoting is not charging: nothing leaves the shopper's balance
+  // until they press the button.
+  //
+  // A second mint would hand the shopper a second código for the
   // same basket, and the código is the one thing that has to stay stable — it
   // is what makes the importe land on this order rather than somewhere else.
   //
@@ -311,6 +416,7 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
   const minted = useRef(false);
   useEffect(() => {
     if (minted.current) return;
+    if (!quoteReady) return;
 
     // A gated network waits for the server's answer about this wallet. `null`
     // is "not yet", not "no" — minting now would ask without a signature and
@@ -345,7 +451,24 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
         const res = await fetch('/api/deposit', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ centavos: cart.total.centavos, network, address, proof, chatId }),
+          // `retailer` and `handoffUrl` are what let the server read the
+          // exact importe — items plus envío — off the store's own cart and
+          // throw away the figure below it. `centavos` stays because it is
+          // still the fallback for a checkout with no store cart to read:
+          // the rehearsal fixture, and a basket that never got a link.
+          //
+          // `settled` is the escape hatch and nothing more. It says the
+          // shopper told us they chose a delivery; it cannot name a price,
+          // and the price is still read server-side either way.
+          body: JSON.stringify({
+            centavos: cart.total.centavos,
+            network,
+            address,
+            proof,
+            chatId,
+            ...(storeReadable ? { retailer: cart.retailer, handoffUrl } : null),
+            ...(storeReadable && slotForced && !slotChosen ? { settled: true } : null),
+          }),
         });
         const body = await res.json();
         if (!res.ok) {
@@ -365,7 +488,28 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
         setMintError(ui.prepareOffline);
       }
     })();
-  }, [cart.total.centavos, lang, network, mode, address, sign, chatId, ui]);
+    // `quoteReady` flips false→true once and stays, and `slotChosen` /
+    // `slotForced` only ever set to true, so this list settles rather than
+    // churning. A refused quote leaves its sentence on screen and does not
+    // retry — the same as every other mint failure here, and for the same
+    // reason: a retry loop against a route that spends money is worse than a
+    // dialog the shopper reopens.
+  }, [
+    quoteReady,
+    storeReadable,
+    slotForced,
+    slotChosen,
+    cart.total.centavos,
+    cart.retailer,
+    handoffUrl,
+    lang,
+    network,
+    mode,
+    address,
+    sign,
+    chatId,
+    ui,
+  ]);
 
   // Poll until it lands. A 502 is the network being unreadable, not a missing
   // importe, so it leaves the screen saying "esperando" rather than "no llegó".
@@ -474,7 +618,15 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
     }
   }, [intent, pay, walletPaying, walletSent, copy.walletPayError]);
 
-  const settle = useCallback(() => {
+  /**
+   * File the receipt and close the order. Once.
+   *
+   * `ref` is the store's own order id when the reading that triggered this
+   * carried one — passed in rather than read from state because the watcher
+   * calls through `settleRef`, which holds the previous render's closure, and
+   * the id usually arrives in the very response that settles.
+   */
+  const settle = useCallback((ref?: string | null) => {
     if (!intent || done.current) return;
     done.current = true;
     // Before the receipt, not after: the order is over, and the residual goes
@@ -496,6 +648,10 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
       // to this basket on the ledger, so it is what a person chasing it later
       // has to quote. Minting a second id here would give them two.
       orderId: intent.memo,
+      // The store's own id for the order, when it gave us one. Optional all
+      // the way down: without it the receipt links to the orders list, which
+      // is one tap further and always true.
+      ...(ref ?? orderRef ? { orderRef: (ref ?? orderRef) as string } : null),
       retailer: cart.retailer,
       paidDisplay: `${intent.amount} ${intent.asset.code}`,
       paidAt: Date.now(),
@@ -504,7 +660,7 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
         .map((l) => ({ name: l.name, quantity: l.quantity, lineTotal: l.lineTotal.display })),
       total: cart.total.display,
     });
-  }, [intent, cart, onPaid, release]);
+  }, [intent, cart, onPaid, release, orderRef]);
 
   async function confirmPaid() {
     if (verifying) return;
@@ -515,14 +671,12 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ retailer: cart.retailer, handoffUrl: handoffUrl ?? '', itemsAtHandoff }),
       });
-      const body: VerifyResponse = res.ok
-        ? await res.json()
-        : { verified: false, identified: false, items: itemsAtHandoff, unknown: true };
+      const body: VerifyResponse = res.ok ? await res.json() : unreadable(itemsAtHandoff);
       setVerdict(body);
       track('order_verify', { verified: String(body.verified), unknown: String(body.unknown) });
-      if (body.verified) settle();
+      if (body.verified) settle(body.orderRef);
     } catch {
-      setVerdict({ verified: false, identified: false, items: itemsAtHandoff, unknown: true });
+      setVerdict(unreadable(itemsAtHandoff));
     } finally {
       setVerifying(false);
     }
@@ -544,8 +698,18 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
   //
   // This loop ended as soon as the store recognised the shopper, which is
   // exactly when the interesting question starts. So it keeps going and what it
-  // is waiting for changes instead: first a profile on the cart, then an empty
-  // one. Same endpoint, same request, one loop.
+  // is waiting for changes instead: a profile on the cart, then a chosen
+  // delivery, then an empty cart. Same endpoint, same request, one loop.
+  //
+  // ## It is also the thing that quotes, and the thing that re-checks
+  //
+  // The middle of those three is what moved the importe to the end of the
+  // flow: `slotChosen` arriving is what lets the mint effect above ask the
+  // server for a price, and `payable` keeps arriving afterwards so the panel
+  // beside the card can say the total moved. That is why there is no separate
+  // re-check fetch on the way into `card` — this loop is already asking the
+  // same question of the same endpoint every five to ten seconds, so the
+  // figure drawn next to the card is at most one tick old.
   //
   // The reason it matters is the end of a successful checkout. VTEX sends the
   // order confirmation page with `x-frame-options: SAMEORIGIN` — the checkout
@@ -567,7 +731,7 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
   // so an abandoned basket and a placed order are not equally likely readings.
   // `release()` is preview-only, so nothing here can destroy a kept card.
   useEffect(() => {
-    if (step !== 'checkout' || rehearsal || !handoffUrl || done.current) return;
+    if (!storeReadable || done.current) return;
     if (polls >= WATCH_MAX) return;
     let live = true;
     const id = setTimeout(
@@ -582,10 +746,18 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
           const body = (await res.json()) as VerifyResponse;
           if (!live) return;
           if (body.identified) setIdentified(true);
+          if (body.slotChosen) setSlotChosen(true);
+          // Live, always: this is the figure the drift warning compares
+          // against the one the shopper was quoted.
+          if (body.payable > 0) setPayable(body.payable);
+          // Frozen once quoted: the split on screen beside a paid importe is
+          // the split that was true when the importe was named.
+          if (body.breakdown.length > 0 && !intentRef.current) setBreakdown(body.breakdown);
+          if (body.orderRef) setOrderRef(body.orderRef);
           if (body.verified) {
             setVerdict(body);
             track('order_verify', { verified: 'true', auto: 'true' });
-            settleRef.current();
+            settleRef.current(body.orderRef);
           }
         } catch {
           /* the manual button covers this */
@@ -599,9 +771,42 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
       live = false;
       clearTimeout(id);
     };
-  }, [step, rehearsal, polls, handoffUrl, cart.retailer, itemsAtHandoff]);
+  }, [storeReadable, polls, handoffUrl, cart.retailer, itemsAtHandoff]);
 
   const confirmed = deposit?.status === 'confirmed';
+  // `delivery` exists only where there is a delivery to wait for. The
+  // rehearsal has no orderForm and so no slot to report, and standing on a
+  // step that says "esperando que elijas el envío" while nothing can ever
+  // answer would be a lie told for the sake of symmetry.
+  const stage: Stage = confirmed ? 'card' : intent ? 'pay' : !signedIn ? 'login' : !slotReady ? 'delivery' : 'pay';
+  /** login · envío · importe. `pay` and `card` are both the third. */
+  const railAt = stage === 'login' ? 0 : stage === 'delivery' ? 1 : 2;
+
+  // Offered only after the store has had a minute and a half to report a
+  // delivery and has not. See SLOT_PATIENCE_MS; the ticks that re-render this
+  // are the watcher's.
+  const slotLate =
+    stage === 'delivery' && identifiedAt.current !== null && Date.now() - identifiedAt.current >= SLOT_PATIENCE_MS;
+
+  // The store's total has moved since the shopper was quoted. Not an error and
+  // not a second charge — it is a sentence naming both numbers, and the card
+  // is still shown, because refusing it would strand somebody who has already
+  // paid. `intent.centavos` is the server's own reading at quote time, so this
+  // compares two figures that both came from the store.
+  const drift = intent !== null && payable > 0 && payable !== intent.centavos;
+
+  // Productos / Envío / Descuentos, in our words where we recognise the line
+  // and in the store's where we do not. Zero rows are dropped, and a split
+  // that is only one line is no split at all — it would print the total
+  // twice, once under a label the shopper did not ask for.
+  const totalLines = breakdown
+    .filter((l) => l.centavos !== 0)
+    .map((l) => ({
+      id: l.id,
+      label: l.id === 'Items' ? copy.itemsLabel : l.id === 'Shipping' ? copy.shippingLabel : l.name,
+      centavos: l.centavos,
+    }));
+  const showSplit = totalLines.length >= 2;
   // Preview *and* a deployment that can actually sign. Both, because the mode
   // alone would render a button that 503s on a checkout with no secret set.
   const demoPays = Boolean(intent) && appMode(network) === 'preview' && intent!.demoPayable;
@@ -626,7 +831,7 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
   // Most likely the frame's cookies are being blocked, which we cannot fix
   // from here — so the tab stops being the quiet option and becomes the loud
   // one, before the shopper spends another minute staring at a logged-out cart.
-  const blocked = step === 'checkout' && !identified && polls >= IDENTIFY_PATIENCE;
+  const blocked = storeReadable && !identified && polls >= IDENTIFY_PATIENCE;
 
   return (
     <div className="modal-backdrop" onClick={close}>
@@ -645,139 +850,52 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
           </button>
         </header>
 
-        {step === 'deposit' ? (
-          <div className="ck-step" data-testid="checkout-deposit">
-            <h3 className="ck-title">{copy.depositTitle}</h3>
-            <p className="ck-lead">{copy.depositLead}</p>
-
-            {mintError ? (
-              <p className="pay-error" data-testid="checkout-mint-error">
-                {mintError}
-              </p>
-            ) : !intent ? (
-              <p className="ck-lead">{ui.preparing}</p>
-            ) : (
-              <>
-                <dl className="ck-fields">
-                  <CopyField
-                    label={copy.amountLabel}
-                    value={`${intent.amount} ${intent.asset.code}`}
-                    copyValue={intent.amount}
-                    testid="checkout-amount"
-                  />
-                </dl>
-
-                {/* Before the address, because it is the way this is meant to
-                    go. Hidden once the importe has landed — a paid basket has
-                    nothing left to pay. */}
-                {walletPays && !confirmed ? (
-                  <>
-                    <p className="ck-note">{copy.walletPayLead}</p>
-                    <button
-                      type="button"
-                      className="btn"
-                      data-testid="checkout-wallet-pay"
-                      disabled={walletPaying || walletSent || short}
-                      onClick={() => void payWithMyWallet()}
-                    >
-                      {walletPaying ? copy.walletPayWorking : copy.walletPayCta}
-                    </button>
-                    {short ? (
-                      <p className="pay-warn" data-testid="checkout-wallet-short">
-                        {copy.walletPayShort}
-                      </p>
-                    ) : null}
-                    {walletError ? (
-                      <p className="pay-error" data-testid="checkout-wallet-error">
-                        {walletError}
-                      </p>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {/* Nothing to copy in preview: there is no wallet to paste it
-                    into, and an address nobody can pay from is noise. In
-                    production it is the second way rather than the only one, so
-                    it is introduced as such. */}
-                {showManual ? (
-                  <>
-                    {walletPays ? <p className="ck-note">{copy.walletPayNote}</p> : null}
-                    <dl className="ck-fields">
-                      <CopyField
-                        label={copy.addressLabel}
-                        value={intent.address}
-                        testid="checkout-address"
-                        mono
-                      />
-                      <CopyField label={copy.memoLabel} value={intent.memo} testid="checkout-memo" mono />
-                    </dl>
-                    <p className="ck-note">{copy.memoNote}</p>
-                  </>
-                ) : null}
-                <p className="ck-note">{copy.refundNote}</p>
-
-                {demoPays && !confirmed ? (
-                  <>
-                    <button
-                      type="button"
-                      className="btn"
-                      data-testid="checkout-demo-pay"
-                      disabled={demoPaying || demoSent}
-                      onClick={() => void payWithDemoWallet()}
-                    >
-                      {demoPaying ? copy.demoPayWorking : copy.demoPayCta}
-                    </button>
-                    {demoError ? (
-                      <p className="pay-error" data-testid="checkout-demo-error">
-                        {demoError}
-                      </p>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {/* Hidden until there is something to wait for. In preview
-                    "esperando que llegue" before the button is pressed would
-                    be waiting on the shopper, phrased as waiting on the
-                    network. */}
-                {demoPays && !demoSent && !confirmed ? null : (
-                  <p
-                    className={confirmed ? 'ck-ok' : 'ck-waiting'}
-                    role="status"
-                    data-testid="checkout-deposit-status"
-                  >
-                    {confirmed ? copy.confirmed : copy.waiting}
-                  </p>
-                )}
-              </>
-            )}
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="btn"
-                data-testid="checkout-continue"
-                disabled={!confirmed}
-                onClick={() => setStep('checkout')}
+        <div className="ck-step" data-testid="checkout-store">
+          {/* Three things, in order, and which one they are on. The whole UX
+              of the reorder is here: before it, a shopper was asked for money
+              first and then discovered there were two more steps. */}
+          <ol className="ck-rail" data-testid="checkout-rail">
+            {[copy.stepLogin, copy.stepDelivery, copy.stepPay].map((label, i) => (
+              <li
+                key={label}
+                className={
+                  i === railAt ? 'ck-rail-step ck-rail-now' : i < railAt ? 'ck-rail-step ck-rail-done' : 'ck-rail-step'
+                }
+                aria-current={i === railAt ? 'step' : undefined}
               >
-                {ui.continueCta}
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={close}>
-                {ui.cancel}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="ck-step" data-testid="checkout-store">
-            <h3 className="ck-title">{copy.checkoutTitle}</h3>
-            <p className="ck-lead">{copy.checkoutLead}</p>
+                <span className="ck-rail-n" aria-hidden="true">
+                  {i + 1}
+                </span>
+                {label}
+              </li>
+            ))}
+          </ol>
 
-            <div className="ck-login">
-              <p className="ck-note">{copy.loginLead}</p>
+          {/* Outside the panels below, because a quote that was refused has no
+              panel: `intent` is what creates one. */}
+          {mintError ? (
+            <p className="pay-error" data-testid="checkout-mint-error">
+              {mintError}
+            </p>
+          ) : quoteReady && !intent ? (
+            <p className="ck-lead">{ui.preparing}</p>
+          ) : null}
+
+          {stage === 'login' ? (
+            <div className="ck-login" data-testid="checkout-login-step">
+              <p className="ck-lead">{copy.loginLead}</p>
+              {/* It does not matter which of the two they finish in. A browser
+                  that blocks third-party cookies may not show the session
+                  inside the frame, and it makes no difference: the cart is
+                  read server-side by its own id, so both are the same cart. */}
+              <p className="ck-note">{copy.loginReturn}</p>
               <div className="ck-login-actions">
+                {/* On a press and never from an effect: `window.open` with no
+                    user gesture is eaten by every popup blocker there is. */}
                 {storeUrl ? (
                   <button
                     type="button"
-                    className="btn btn-ghost"
+                    className="btn"
                     data-testid="checkout-login"
                     onClick={() => window.open(storeUrl, '_blank', 'noopener,noreferrer')}
                   >
@@ -794,14 +912,183 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
                   {ui.loggedIn}
                 </button>
               </div>
+            </div>
+          ) : null}
+
+          {stage === 'delivery' ? (
+            <div className="ck-delivery" data-testid="checkout-delivery">
               {identified ? (
                 <p className="ck-ok" role="status" data-testid="checkout-identified">
                   {copy.identified}
                 </p>
               ) : null}
+              <p className="ck-lead">{copy.deliveryLead}</p>
+              <p className="ck-waiting" role="status">
+                {copy.deliveryWaiting}
+              </p>
+              {/* The escape hatch, and only after the store has had its minute
+                  and a half. It skips the wait, not the reading: the server
+                  still prices the basket off the store's own cart. */}
+              {slotLate ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  data-testid="checkout-slot-done"
+                  onClick={() => setSlotForced(true)}
+                >
+                  {copy.deliveryDoneCta}
+                </button>
+              ) : null}
             </div>
+          ) : null}
 
-            {intent?.cardAvailable ? (
+          {intent ? (
+            <div className="ck-pay" data-testid="checkout-pay">
+              <p className="ck-lead">{copy.payLead}</p>
+              {rehearsal && copy.rehearsalNote ? (
+                <p className="ck-note" data-testid="checkout-rehearsal">
+                  {copy.rehearsalNote}
+                </p>
+              ) : null}
+
+              {/* The line this whole change exists for: envío is a row of its
+                  own, and the total under it is the one the súper will charge.
+                  `intent.centavos` is the server's reading, never the
+                  browser's — see POST /api/deposit. */}
+              <dl className="ck-totals" data-testid="checkout-totals">
+                {showSplit
+                  ? totalLines.map((l) => (
+                      <div key={l.id} className="ck-total-line">
+                        <dt>{l.label}</dt>
+                        <dd>{formatARS(l.centavos)}</dd>
+                      </div>
+                    ))
+                  : null}
+                <div className="ck-total-line ck-total-sum">
+                  <dt>{copy.totalLabel}</dt>
+                  <dd data-testid="checkout-total">{formatARS(intent.centavos)}</dd>
+                </div>
+              </dl>
+
+              <dl className="ck-fields">
+                <CopyField
+                  label={copy.amountLabel}
+                  value={`${intent.amount} ${intent.asset.code}`}
+                  copyValue={intent.amount}
+                  testid="checkout-amount"
+                />
+              </dl>
+
+              {/* Before the address, because it is the way this is meant to
+                  go. Hidden once the importe has landed — a paid basket has
+                  nothing left to pay. Always a press: nobody's balance is
+                  touched by the store being read. */}
+              {walletPays && !confirmed ? (
+                <>
+                  <p className="ck-note">{copy.walletPayLead}</p>
+                  <button
+                    type="button"
+                    className="btn"
+                    data-testid="checkout-wallet-pay"
+                    disabled={walletPaying || walletSent || short}
+                    onClick={() => void payWithMyWallet()}
+                  >
+                    {walletPaying ? copy.walletPayWorking : copy.walletPayCta}
+                  </button>
+                  {short ? (
+                    <p className="pay-warn" data-testid="checkout-wallet-short">
+                      {copy.walletPayShort}
+                    </p>
+                  ) : null}
+                  {walletError ? (
+                    <p className="pay-error" data-testid="checkout-wallet-error">
+                      {walletError}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+
+              {/* Nothing to copy in preview: there is no wallet to paste it
+                  into, and an address nobody can pay from is noise. In
+                  production it is the second way rather than the only one, so
+                  it is introduced as such — and it is the way out for anyone
+                  who would rather not pay from their balance in one press. */}
+              {showManual ? (
+                <>
+                  {walletPays ? <p className="ck-note">{copy.walletPayNote}</p> : null}
+                  <dl className="ck-fields">
+                    <CopyField label={copy.addressLabel} value={intent.address} testid="checkout-address" mono />
+                    <CopyField label={copy.memoLabel} value={intent.memo} testid="checkout-memo" mono />
+                  </dl>
+                  <p className="ck-note">{copy.memoNote}</p>
+                </>
+              ) : null}
+              <p className="ck-note">{copy.refundNote}</p>
+
+              {demoPays && !confirmed ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn"
+                    data-testid="checkout-demo-pay"
+                    disabled={demoPaying || demoSent}
+                    onClick={() => void payWithDemoWallet()}
+                  >
+                    {demoPaying ? copy.demoPayWorking : copy.demoPayCta}
+                  </button>
+                  {demoError ? (
+                    <p className="pay-error" data-testid="checkout-demo-error">
+                      {demoError}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+
+              {/* Hidden until there is something to wait for. In preview
+                  "esperando que llegue" before the button is pressed would
+                  be waiting on the shopper, phrased as waiting on the
+                  network. */}
+              {demoPays && !demoSent && !confirmed ? null : (
+                <p
+                  className={confirmed ? 'ck-ok' : 'ck-waiting'}
+                  role="status"
+                  data-testid="checkout-deposit-status"
+                >
+                  {confirmed ? copy.confirmed : copy.waiting}
+                </p>
+              )}
+            </div>
+          ) : null}
+
+          {/* The card, and the warning that has to come before it. The store
+              moved its own total after the shopper was quoted: both numbers,
+              named plainly, and no second charge and no automatic refund. The
+              card is still shown — refusing it would strand somebody who has
+              already sent the money. */}
+          {stage === 'card' && drift && intent ? (
+            <div className="ck-drift" role="status" data-testid="checkout-drift">
+              <p className="pay-warn">{copy.driftTitle}</p>
+              <dl className="ck-totals">
+                <div className="ck-total-line">
+                  <dt>{copy.driftPaid}</dt>
+                  <dd>{`${intent.amount} ${intent.asset.code} · ${formatARS(intent.centavos)}`}</dd>
+                </div>
+                <div className="ck-total-line">
+                  <dt>{copy.driftNow}</dt>
+                  <dd data-testid="checkout-drift-now">{formatARS(payable)}</dd>
+                </div>
+              </dl>
+              <p className="ck-note">{copy.driftLead}</p>
+            </div>
+          ) : null}
+
+          {/* Only once the importe has landed. It is the moment the numbers
+              are wanted and not a second before — and the copy says what to
+              do with the card, never that anything was loaded onto it: the
+              funding here is simulated, and lib/shared-card.ts says why. */}
+          {stage === 'card' && intent?.cardAvailable ? (
+            <>
+              <p className="ck-note">{copy.cardReadyLead}</p>
               <CardPanel
                 memo={intent.memo}
                 network={network}
@@ -810,86 +1097,115 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
                   cardLive.current = true;
                 }}
               />
-            ) : null}
+            </>
+          ) : null}
 
-            <div className={blocked ? 'ck-tab ck-tab-up' : 'ck-tab'}>
-              {handoffUrl ? (
-                <a
-                  className={blocked ? 'btn' : 'btn btn-ghost'}
-                  data-testid="checkout-tab"
-                  href={handoffUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {copy.openTab}
-                </a>
-              ) : null}
-              <span className="ck-note">{copy.openTabNote}</span>
-            </div>
-
-            {verdict ? (
-              <p
-                className={verdict.verified ? 'ck-ok' : 'pay-warn'}
-                role="status"
-                data-testid="checkout-verdict"
+          <div className={blocked ? 'ck-tab ck-tab-up' : 'ck-tab'}>
+            {handoffUrl ? (
+              <a
+                className={blocked ? 'btn' : 'btn btn-ghost'}
+                data-testid="checkout-tab"
+                href={handoffUrl}
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                {verdict.verified ? copy.verified : verdict.unknown ? copy.unreachable : copy.unverified}
-              </p>
+                {copy.openTab}
+              </a>
             ) : null}
+            <span className="ck-note">{copy.openTabNote}</span>
+          </div>
 
-            <div className="modal-actions">
+          {verdict ? (
+            <p
+              className={verdict.verified ? 'ck-ok' : 'pay-warn'}
+              role="status"
+              data-testid="checkout-verdict"
+            >
+              {verdict.verified ? copy.verified : verdict.unknown ? copy.unreachable : copy.unverified}
+            </p>
+          ) : null}
+
+          <div className="modal-actions">
+            {/* Not before the card stage: until the importe has landed there
+                is nothing for the shopper to have paid with, and a press here
+                would file a receipt for a purchase that has not happened. */}
+            <button
+              type="button"
+              className="btn"
+              data-testid="checkout-paid"
+              onClick={() => void confirmPaid()}
+              disabled={verifying || stage !== 'card'}
+            >
+              {verifying ? copy.checking : copy.paidCta}
+            </button>
+            {/* Only after the store has been asked and did not agree. The
+                shopper was there and we were not, so the flow continues on
+                their word — but not before we have tried to corroborate it. */}
+            {verdict && !verdict.verified ? (
               <button
                 type="button"
-                className="btn"
-                data-testid="checkout-paid"
-                onClick={() => void confirmPaid()}
-                disabled={verifying}
+                className="btn btn-ghost"
+                data-testid="checkout-anyway"
+                onClick={() => settle()}
               >
-                {verifying ? copy.checking : copy.paidCta}
+                {ui.anyway}
               </button>
-              {/* Only after the store has been asked and did not agree. The
-                  shopper was there and we were not, so the flow continues on
-                  their word — but not before we have tried to corroborate it. */}
-              {verdict && !verdict.verified ? (
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  data-testid="checkout-anyway"
-                  onClick={settle}
-                >
-                  {ui.anyway}
-                </button>
-              ) : null}
-              <button type="button" className="btn btn-ghost" onClick={close}>
-                {ui.close}
-              </button>
-            </div>
-
-            {/* Last, and that is the layout decision. Everything a shopper
-                operates — log in, take a card, open a tab, say they paid — is
-                chrome around the store's page, and while it sat *below* the
-                frame the frame had to stay short enough that "Ya lo pagué" was
-                still reachable: 42dvh of a súper's checkout, which is about one
-                form field and a scrollbar. With the controls gathered above it,
-                nothing is waiting underneath and the frame gets the rest of the
-                dialog. See .ck-frame in globals.css. */}
-            {frameSrc ? (
-              <iframe
-                className="ck-frame"
-                data-testid="checkout-frame"
-                src={frameSrc}
-                title={copy.checkoutTitle}
-                // Payment needs scripts, forms and its own cookies; the rest
-                // stays off. `allow-same-origin` is what lets the store keep a
-                // session at all — without it every request is an opaque
-                // origin and checkout cannot work.
-                sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-top-navigation-by-user-activation"
-                referrerPolicy="no-referrer"
-              />
             ) : null}
+            <button type="button" className="btn btn-ghost" onClick={close}>
+              {ui.close}
+            </button>
           </div>
-        )}
+
+          {/* Last, and that is the layout decision. Everything a shopper
+              operates — log in, take a card, open a tab, say they paid — is
+              chrome around the store's page, and while it sat *below* the
+              frame the frame had to stay short enough that "Ya lo pagué" was
+              still reachable: 42dvh of a súper's checkout, which is about one
+              form field and a scrollbar. With the controls gathered above it,
+              nothing is waiting underneath and the frame gets the rest of the
+              dialog. See .ck-frame in globals.css.
+
+              Mounted here from the first render and never unmounted. It is
+              the store's own checkout: re-mounting it reloads the page and
+              throws away whatever the shopper has typed into it, which is
+              exactly what a step change used to do. */}
+          {frameSrc ? (
+            <iframe
+              className="ck-frame"
+              data-testid="checkout-frame"
+              src={frameSrc}
+              title={copy.checkoutTitle}
+              // Payment needs scripts, forms and its own cookies; the rest
+              // stays off. `allow-same-origin` is what lets the store keep a
+              // session at all — without it every request is an opaque
+              // origin and checkout cannot work.
+              sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-top-navigation-by-user-activation"
+              referrerPolicy="no-referrer"
+            />
+          ) : null}
+        </div>
       </section>
     </div>
   );
+}
+
+/**
+ * The verdict when the store could not be asked.
+ *
+ * `unknown` is the field that matters: it is what stops the copy saying the
+ * store disagreed when what actually happened is that we could not reach it.
+ * The money fields are zero and empty rather than absent, so nothing
+ * downstream has to test for a half-built answer — see VerifyResponse.
+ */
+function unreadable(items: number): VerifyResponse {
+  return {
+    verified: false,
+    identified: false,
+    items,
+    unknown: true,
+    payable: 0,
+    breakdown: [],
+    slotChosen: false,
+    orderRef: null,
+  };
 }

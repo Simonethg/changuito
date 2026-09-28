@@ -18,6 +18,16 @@ import { collectPageErrors, expectNoPageErrors } from './support/page-errors';
  * A basket becomes a paid receipt: the whole flow, once, against a scripted
  * server.
  *
+ * ## The order, which is the thing this file is really about
+ *
+ * It used to be importe → store → card: the shopper was quoted on mount, from
+ * the basket, and only afterwards discovered there were two more steps and a
+ * delivery charge that had not been in the number. Now the store comes first —
+ * sign in, pick a delivery, and only then is an importe named — and this spec
+ * walks that order. **If it ever passes with the quote on screen before the
+ * sign-in, the bug is back**, which is what the `calls.depositMint` assertions
+ * below are for: they pin *when* the money is quoted, not just that it is.
+ *
  * ## What this does not prove
  *
  * **Not that a purchase happened.** There is no sandbox supermarket anywhere —
@@ -27,6 +37,14 @@ import { collectPageErrors, expectNoPageErrors } from './support/page-errors';
  * what the app does *when the store says paid*. A green run means the flow is
  * correct. It does not mean anyone was charged, and a screenshot of it is not
  * a screenshot of a purchase.
+ *
+ * **Not the half of the reorder that reads the súper.** The fixture has no
+ * orderForm, so there is no profile to notice, no `selectedSla` to wait for
+ * and no `totalizers` to split into Productos and Envío. On this path
+ * `identified` comes from the shopper's own "Ya ingresé", the delivery step is
+ * skipped rather than faked, and the importe is quoted from the basket as it
+ * always was. The server-reading leg is `lib/test/order-check.test.ts` plus a
+ * hand check against mainnet; it cannot be automated anywhere.
  *
  * **Not the ledger, the issuer or the model.** Those three are mocked here for
  * the reasons `support/checkout-fixtures.ts` sets out. They have been
@@ -90,27 +108,12 @@ test.describe('frame checkout', () => {
     // these two ever disagree, one of them is lying about what is in the cart.
     await expect(page.locator('.rail-cart-total strong')).toHaveText('$5.150,00');
 
-    // ---- the importe ------------------------------------------------------
+    // ---- the store, in a frame, first ------------------------------------
     await thread.getByRole('button', { name: 'Pagá con USDC' }).click();
     const modal = page.getByTestId('checkout-modal');
     await expect(modal).toBeVisible();
-
-    await expect(page.getByTestId('checkout-amount')).toHaveText(`${DEPOSIT_AMOUNT} XLM`);
-    await expect(page.getByTestId('checkout-address')).toHaveText(DEPOSIT_ADDRESS);
-    await expect(page.getByTestId('checkout-memo')).toHaveText(MEMO);
-
-    const status = page.getByTestId('checkout-deposit-status');
-    await expect(status).toHaveText(/Esperando/);
-    // Nothing can be paid before the importe lands. This is the gate.
-    await expect(page.getByTestId('checkout-continue')).toBeDisabled();
-
-    // The second poll is the one that finds it, four seconds out.
-    await expect(status).toHaveText(/Llegó/, { timeout: 20_000 });
-    await expect(page.getByTestId('checkout-continue')).toBeEnabled();
-    await page.getByTestId('checkout-continue').click();
-
-    // ---- the store, in a frame -------------------------------------------
     await expect(page.getByTestId('checkout-store')).toBeVisible();
+
     const frame = page.getByTestId('checkout-frame');
     // The rehearsal branch: modo prueba frames our fixture, never Día. If this
     // ever points at a real storefront, the rest of this test is a purchase.
@@ -121,10 +124,46 @@ test.describe('frame checkout', () => {
     // It really is framed — the headers allow it and the page rendered.
     await expect(page.frameLocator('[data-testid="checkout-frame"]').getByTestId('fixture-pay')).toBeVisible();
 
-    await page.getByTestId('checkout-logged-in').click();
-    await expect(page.getByTestId('checkout-identified')).toBeVisible();
+    // Three things, and they can see which one they are on.
+    const rail = page.getByTestId('checkout-rail');
+    await expect(rail.locator('li')).toHaveCount(3);
+    await expect(rail.locator('li[aria-current="step"]')).toHaveText(/Entrá a tu cuenta/);
 
-    // ---- the optional card ------------------------------------------------
+    // **The assertion the reorder exists for.** Not a number anywhere, and
+    // nothing asked of the deposit route: the shopper has not said who they
+    // are, so the súper has not been priced and no importe has been quoted.
+    await expect(page.getByTestId('checkout-login-step')).toBeVisible();
+    await expect(page.getByTestId('checkout-pay')).toHaveCount(0);
+    await expect(page.getByTestId('checkout-amount')).toHaveCount(0);
+    expect(calls.depositMint, 'the deposit was quoted before the shopper signed in').toBe(0);
+    // And "Ya lo pagué" cannot be pressed into a receipt for nothing.
+    await expect(page.getByTestId('checkout-paid')).toBeDisabled();
+
+    // ---- signed in, and only now the importe ------------------------------
+    await page.getByTestId('checkout-logged-in').click();
+
+    const pay = page.getByTestId('checkout-pay');
+    await expect(pay).toBeVisible();
+    await expect(rail.locator('li[aria-current="step"]')).toHaveText(/Pagá el importe/);
+    // Quoted from the basket here, because the fixture has no cart to read.
+    // Against a real store this is `state.payable`, envío included, and the
+    // split above it is the store's own totalizers.
+    await expect(page.getByTestId('checkout-total')).toHaveText(/5\.150,00/);
+    await expect(page.getByTestId('checkout-amount')).toHaveText(`${DEPOSIT_AMOUNT} XLM`);
+    await expect(page.getByTestId('checkout-address')).toHaveText(DEPOSIT_ADDRESS);
+    await expect(page.getByTestId('checkout-memo')).toHaveText(MEMO);
+
+    const status = page.getByTestId('checkout-deposit-status');
+    await expect(status).toHaveText(/Esperando/);
+    // Still nothing to confirm: the money has not landed.
+    await expect(page.getByTestId('checkout-paid')).toBeDisabled();
+
+    // The second poll is the one that finds it, four seconds out.
+    await expect(status).toHaveText(/Llegó/, { timeout: 20_000 });
+
+    // ---- the card ---------------------------------------------------------
+    // It appears with the importe and not before — that is the mount, and it
+    // is the moment the numbers are wanted.
     await expect(page.getByTestId('checkout-card')).toBeVisible();
     await page.getByTestId('checkout-card-issue').click();
 
@@ -148,10 +187,17 @@ test.describe('frame checkout', () => {
     expect(leaked(duringCheckout, OTP_CODE), 'a one-time code reached storage').toBe(false);
 
     // ---- paid -------------------------------------------------------------
+    await expect(page.getByTestId('checkout-paid')).toBeEnabled();
     await page.getByTestId('checkout-paid').click();
     await expect(modal).toBeHidden();
     // The store was asked before the shopper's word was taken.
     expect(calls.verify).toBe(1);
+    // **And the basket was priced exactly once, at the end.** This is the
+    // property that replaced `calls.verify === 1` as the one worth pinning:
+    // the quote is now driven by the shopper reaching a step rather than by
+    // the dialog opening, and a second mint would mean two importes for one
+    // basket — or the old mount effect having crept back in.
+    expect(calls.depositMint, 'the basket was quoted more than once').toBe(1);
     // And the card was given back in the same breath as the receipt: a card
     // left alive is money sitting somewhere nobody is watching.
     //

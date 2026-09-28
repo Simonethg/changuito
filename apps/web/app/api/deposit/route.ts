@@ -55,6 +55,7 @@
  * has been issued.
  */
 import { arsToUsdCents, getArsPerUsd } from '@changuito/mcp/fx';
+import { CARD_MIN_CENTS, formatUsd } from '@changuito/mcp/pay';
 
 import { modeKeepsRecords } from '../../../lib/app-mode.ts';
 import { canIssueCard, rememberDepositor } from '../../../lib/card.ts';
@@ -64,6 +65,8 @@ import { depositAddress, depositAsset, isMemo, mintMemo, type DepositAsset } fro
 import { authorizeRealMode, realModeNeedsProof } from '../../../lib/deposit-gate.ts';
 import { findDeposit } from '../../../lib/deposit-watch.ts';
 import { requireHuman } from '../../../lib/human-gate.ts';
+import { orderFormIdFrom, readOrderForm } from '../../../lib/order-check.ts';
+import { sharedCardCeilingCents } from '../../../lib/shared-card.ts';
 import { canDemoPay } from '../../../lib/server/demo-wallet.ts';
 import { proofFromBody } from '../../../lib/wallet-proof-verify.ts';
 
@@ -160,10 +163,13 @@ export async function POST(req: Request): Promise<Response> {
     network?: unknown;
     address?: unknown;
     chatId?: unknown;
+    retailer?: unknown;
+    handoffUrl?: unknown;
+    settled?: unknown;
   };
 
-  const centavos = Number(input.centavos);
-  if (!Number.isInteger(centavos) || centavos <= 0) {
+  const claimed = Number(input.centavos);
+  if (!Number.isInteger(claimed) || claimed <= 0) {
     return Response.json({ error: 'centavos must be a positive integer' }, { status: 400 });
   }
 
@@ -202,10 +208,64 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: 'los pagos no están habilitados en este entorno' }, { status: 503 });
   }
 
+  // ---------------------------------------------------------------- the price
+  //
+  // The browser does not get to name it. When the caller hands over the cart
+  // it is checking out, the total is read from the store's own orderForm here,
+  // server-side, and whatever the browser claimed is discarded — see
+  // `storeTotal` below for why that read is the whole point of this change.
+  //
+  // The claimed figure is still the fallback, for the two callers that have no
+  // store cart to read: `PaymentModal`, and the `/dev/checkout` rehearsal,
+  // which is a fixture with no orderForm behind it at all.
+  const quoted = await storeTotal(input.retailer, input.handoffUrl, input.settled === true);
+  if (quoted?.kind === 'unsettled') {
+    return Response.json(
+      {
+        error: 'delivery_not_chosen',
+        message: 'Todavía falta elegir el envío en el súper.',
+      },
+      { status: 409 },
+    );
+  }
+  if (quoted?.kind === 'unreadable') {
+    return Response.json(
+      {
+        error: 'cart_unreadable',
+        message: 'No pudimos leer el changuito en el súper en este momento. Probá de nuevo en un minuto.',
+      },
+      { status: 409 },
+    );
+  }
+  const centavos = quoted?.kind === 'read' ? quoted.centavos : claimed;
+
   try {
     const override = Number(process.env.FX_ARS_PER_USD);
     const rate = await getArsPerUsd(Number.isFinite(override) && override > 0 ? { override } : {});
-    const usdCents = arsToUsdCents(centavos, rate.arsPerUsd, BUFFER);
+    // Raised to the card minimum, the way `decideFunding` does it in the MCP
+    // package. Not a call to `decideFunding` itself, which wants a settled
+    // provider balance this deployment cannot read — the provider API is 403 —
+    // so the one rule that applies here is applied directly. Without it a very
+    // small basket quotes below $1 and is then refused by `POST /api/card`
+    // with `too-small`, after the money has already moved.
+    const bare = arsToUsdCents(centavos, rate.arsPerUsd, BUFFER);
+    const usdCents = bare > 0 && bare < CARD_MIN_CENTS ? CARD_MIN_CENTS : bare;
+
+    // A basket bigger than what is on the card. Refused here rather than
+    // discovered at the till: the card is loaded by hand and nothing tops it
+    // up, so quoting past it means taking the USDC and *then* declining. Soft
+    // by construction — `sharedCardCeilingCents` says why — and absent on
+    // every deployment that has no such record, where it is a no-op.
+    const ceiling = await sharedCardCeilingCents(network);
+    if (ceiling !== null && usdCents > ceiling) {
+      return Response.json(
+        {
+          error: 'over_card_ceiling',
+          message: `Este changuito supera el límite por compra (${formatUsd(ceiling)}). Sacá algo o escribinos.`,
+        },
+        { status: 409 },
+      );
+    }
 
     // The order is opened for every memo, so the claim latch that `POST
     // /api/card` needs always has a row to latch onto. The *address* is written
@@ -338,4 +398,64 @@ export async function GET(req: Request): Promise<Response> {
     console.error('[deposit] horizon read failed:', message(err));
     return Response.json({ error: 'no pudimos consultar la red en este momento' }, { status: 502 });
   }
+}
+
+/**
+ * The exact total, read from the store's own cart.
+ *
+ * This is the change the whole reorder exists for. The deposit used to be
+ * quoted from `cart.total`, which is the goods subtotal by design — see
+ * `payableTotal` in `@changuito/mcp/orderform` — so the shopper was charged
+ * before a delivery slot existed and for a number that did not include envío.
+ * Now the browser hands over *which cart*, and the amount comes from the
+ * document.
+ *
+ * Four outcomes, and the middle two matter:
+ *
+ * - `undefined` — no cart was named at all. The caller falls back to the
+ *   figure the browser claimed, which is what it always did, and which is
+ *   what keeps `PaymentModal` and the `/dev/checkout` rehearsal working: both
+ *   are baskets with no store orderForm behind them.
+ * - `unsettled` — the cart was read and the shopper has not chosen a delivery
+ *   yet, so the shipping line is not in the total. Quoting here would
+ *   reintroduce the exact bug this replaces, so it is a refusal instead.
+ * - `unreadable` — a cart *was* named and the store could not be asked, or
+ *   answered with no usable total. Also a refusal; see below.
+ * - `read` — the payable total, envío included.
+ *
+ * Note what is *not* here: no fallback to the claimed figure once a cart has
+ * been named. A caller that names a cart is quoted from that cart or not at
+ * all; letting it fall back would make the server-side read advisory, and an
+ * advisory price check is not one. That is why the store being briefly
+ * unreachable is a 409 the shopper can act on rather than a quiet reversion
+ * to the wrong number.
+ *
+ * ## `settled` skips the wait and nothing else
+ *
+ * It is the browser saying the shopper told us they picked a delivery — the
+ * escape hatch for a store that does not hand `shippingData.logisticsInfo` to
+ * a reader with no session. It can only ever suppress the `unsettled`
+ * refusal. It cannot name a figure, and the figure is still read from the
+ * store's own document either way, so the rule the whole change rests on —
+ * the browser does not name its own price — survives it intact.
+ */
+async function storeTotal(
+  retailer: unknown,
+  handoffUrl: unknown,
+  settled: boolean,
+): Promise<
+  { kind: 'read'; centavos: number } | { kind: 'unsettled' } | { kind: 'unreadable' } | undefined
+> {
+  if (typeof retailer !== 'string' || typeof handoffUrl !== 'string') return undefined;
+  const orderFormId = orderFormIdFrom(handoffUrl);
+  if (!retailer || !orderFormId) return undefined;
+
+  // `itemsAtHandoff: 0` because `looksPaid` is not being asked here — a zero
+  // makes that flag false whatever the cart says, which is correct: this call
+  // is about the price, and nothing reads the verdict.
+  const state = await readOrderForm({ retailer, orderFormId, itemsAtHandoff: 0 });
+  if (!state) return { kind: 'unreadable' };
+  if (!state.slotChosen && !settled) return { kind: 'unsettled' };
+  if (!Number.isInteger(state.payable) || state.payable <= 0) return { kind: 'unreadable' };
+  return { kind: 'read', centavos: state.payable };
 }

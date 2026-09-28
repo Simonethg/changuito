@@ -80,6 +80,36 @@ export async function sharedCardFor(net: NetworkId): Promise<IssuedCard | null> 
   }
 }
 
+/**
+ * What the operator says is loaded on the card, in US cents, or nothing.
+ *
+ * **Server-side only, and it must stay that way.** The figure exists so a
+ * basket larger than the card can be refused *before* the shopper's USDC is
+ * taken — the card is loaded by hand and nothing tops it up, so the failure
+ * mode without this check is a payment that goes through on our side and then
+ * declines at the till. It is never returned to a browser; `sharedCardFor`
+ * above explains at length why no balance crosses the wire.
+ *
+ * It is a **soft** ceiling and callers must treat it as one. `funded_cents` is
+ * what the operator typed when they loaded the card and nothing decrements it
+ * as the card is spent, so it catches "this basket is bigger than the card"
+ * and not "the card has been spent down". Refusing on it is still worth doing:
+ * the first of those is the case a shopper can actually hit by filling a
+ * bigger basket, and the second needs the provider's API, which is 403.
+ */
+export async function sharedCardCeilingCents(net: NetworkId): Promise<number | null> {
+  if (!hasDatabase()) return null;
+  try {
+    const rows = await db()`
+      select funded_cents from shared_card where network = ${net}`;
+    const v = rows[0]?.funded_cents;
+    return typeof v === 'number' && v > 0 ? v : null;
+  } catch (err) {
+    console.error('[shared-card] could not read the ceiling:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
 /** Whether this wallet is on the list for this network. */
 export async function isSharedMember(net: NetworkId, address: string): Promise<boolean> {
   if (!hasDatabase()) return false;

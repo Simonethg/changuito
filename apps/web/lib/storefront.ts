@@ -47,11 +47,10 @@ export const STOREFRONT_ORIGINS: readonly string[] = Object.values(STOREFRONT_HO
  * ours to fix — it is the store's header on the store's page — so the answer is
  * to stop showing the frame and hand over a link that opens properly.
  *
- * **It points at the list, not at the order.** The order id only ever exists in
- * the URL of that refused page, which is the one place we cannot read; VTEX's
- * public API will not name an order to an unauthenticated caller either. The
- * list is one tap further and it is true, which a guessed id would not be — and
- * the order the shopper just placed is the first one on it.
+ * **It points at the list, not at the order.** Use `storeOrderUrl` instead
+ * whenever the order id is known; this is the fallback for when it is not. The
+ * list is one tap further and it is always true, and the order the shopper just
+ * placed is the first one on it.
  *
  * `#/my-orders` is a client-side route, so the fragment never reaches the
  * server and this cannot be checked with a request. It is the path Día's own
@@ -60,6 +59,28 @@ export const STOREFRONT_ORIGINS: readonly string[] = Object.values(STOREFRONT_HO
 export function storeOrdersUrl(retailer: string): string | null {
   const host = STOREFRONT_HOSTS[retailer];
   return host ? `https://${host}/account#/my-orders` : null;
+}
+
+/**
+ * The page for one specific order.
+ *
+ * This became reachable when the cart reader started parsing the whole
+ * orderForm: `orderGroup` appears in the document the moment the order exists,
+ * so the id no longer only lives in the URL of the page the browser refuses to
+ * draw. `orderRef` is built in `api/order/verify` — see `orderRefFrom` there
+ * for why the `-01` suffix is an inference rather than a fact.
+ *
+ * Callers must fall back to `storeOrdersUrl` when they have no ref, which is
+ * every order placed before this existed and every store that does not hand
+ * `orderGroup` to a reader with no session.
+ */
+export function storeOrderUrl(retailer: string, orderRef: string): string | null {
+  const host = STOREFRONT_HOSTS[retailer];
+  if (!host) return null;
+  // The ref goes in a URL fragment on someone else's site. Nothing here should
+  // ever be anything but the store's own id shape.
+  if (!/^[0-9]{6,24}-[0-9]{2}$/.test(orderRef)) return null;
+  return `https://${host}/account#/my-orders/order/${orderRef}`;
 }
 
 /**

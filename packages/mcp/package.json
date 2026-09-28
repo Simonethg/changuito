@@ -51,6 +51,10 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
     },
+    "./orderform": {
+      "types": "./dist/orderform.d.ts",
+      "import": "./dist/orderform.js"
+    },
     "./money": {
       "types": "./dist/util/money.d.ts",
       "import": "./dist/util/money.js"

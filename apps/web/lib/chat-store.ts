@@ -71,6 +71,12 @@ export interface Receipt {
   paidAt: number;
   lines: { name: string; quantity: number; lineTotal: string }[];
   total: string;
+  /**
+   * The order's id at the store, when it gave us one — see `storeOrderUrl`.
+   * Optional, so `VERSION` stays where it is and a receipt written before this
+   * existed still loads; those simply link to the orders list instead.
+   */
+  orderRef?: string;
 }
 
 export interface StoredChat {
@@ -216,6 +222,7 @@ function packReceipt(r: Receipt): Receipt {
     paidAt: r.paidAt,
     lines: r.lines.map((l) => ({ name: l.name, quantity: l.quantity, lineTotal: l.lineTotal })),
     total: r.total,
+    ...(r.orderRef === undefined ? {} : { orderRef: r.orderRef }),
   };
 }
 
@@ -399,7 +406,8 @@ function asReceipt(v: unknown): Receipt | null {
       return name === null || quantity === null || lineTotal === null ? null : { name, quantity, lineTotal };
     })
     .filter((l): l is Receipt['lines'][number] => l !== null);
-  return { orderId, retailer, paidDisplay, paidAt, lines, total };
+  const orderRef = str(v.orderRef);
+  return { orderId, retailer, paidDisplay, paidAt, lines, total, ...(orderRef === null ? {} : { orderRef }) };
 }
 
 /* --------------------------------------------------------------- the store */
