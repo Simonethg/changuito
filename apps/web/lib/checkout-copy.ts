@@ -44,17 +44,16 @@ export interface CheckoutCopy {
    * press. Empty in the test mode — a visitor with no session has no balance
    * to spend, which is the whole shape of preview.
    *
-   * `walletPayNote` is the manual path, kept and demoted rather than removed.
-   * Somebody whose dollars sit on an exchange still needs the address and the
-   * código, and that is a different person from the one this button is for,
-   * not an earlier step in the same journey.
+   * There is no companion sentence introducing the address and the código any
+   * more. It used to sit under this button, and two ways to send one importe
+   * side by side left the shopper working out which of them counted. Where
+   * this button exists it is the answer; the address only comes back where no
+   * button does. See `showManual` in CheckoutModal.
    */
   walletPayCta: string;
   walletPayWorking: string;
   /** Above the button. Says where the money comes off, since nothing else does. */
   walletPayLead: string;
-  /** Introduces the address and the código, once they are no longer the only way. */
-  walletPayNote: string;
   /** The default reason, when the outcome carries none worth reading out. */
   walletPayError: string;
   /** Not enough saldo. Checked before the press, so it is a sentence and not a refusal. */
@@ -179,7 +178,6 @@ const COMMON = {
   walletPayCta: '',
   walletPayWorking: '',
   walletPayLead: '',
-  walletPayNote: '',
   walletPayError: '',
   walletPayShort: '',
   checkoutTitle: 'Pagá en el súper',
@@ -264,7 +262,6 @@ const REAL: CheckoutCopy = {
   walletPayCta: 'Pagar con mis dólares',
   walletPayWorking: 'Pagando…',
   walletPayLead: 'Lo descontamos de tu saldo. No hay nada que copiar.',
-  walletPayNote: 'O mandalo vos, desde donde tengas tus dólares:',
   walletPayError: 'No pudimos hacer el pago. Probá de nuevo.',
   // Deliberately not "cargá dólares arriba": this dialog has no funding
   // control in it, and pointing at one that is not on screen is worse than
@@ -345,7 +342,6 @@ const COMMON_EN = {
   walletPayCta: '',
   walletPayWorking: '',
   walletPayLead: '',
-  walletPayNote: '',
   walletPayError: '',
   walletPayShort: '',
   checkoutTitle: 'Pay at the store',
@@ -426,7 +422,6 @@ const LIVE_EN: CheckoutCopy = {
   walletPayCta: 'Pay with my dollars',
   walletPayWorking: 'Paying…',
   walletPayLead: "We take it off your balance. There's nothing to copy.",
-  walletPayNote: 'Or send it yourself, from wherever you keep your dollars:',
   walletPayError: "We couldn't make the payment. Try again.",
   // Points nowhere: there is no funding control in this dialog.
   walletPayShort: "Your balance isn't enough for this payment.",

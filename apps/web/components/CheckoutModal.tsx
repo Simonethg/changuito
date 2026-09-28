@@ -161,10 +161,12 @@ interface Props {
  * - **The balance, read first.** A short balance is a sentence before the
  *   press rather than `op_underfunded` after it.
  *
- * The address and the código stay on screen, below the button. Somebody whose
- * dollars sit on an exchange still needs them, and that is a different shopper
- * rather than an earlier step in this one's journey — so it is demoted, not
- * deleted, and it disappears once the wallet has actually paid.
+ * **The address and the código are not shown next to it.** They were, demoted
+ * under the button, on the reasoning that somebody whose dollars sit on an
+ * exchange still needs them. In front of a real shopper it read as two ways to
+ * send the same importe with nothing saying which one counted, so it is gone
+ * from every screen that has a button: `showManual` now means "there is no
+ * button", not "the button has not been pressed yet".
  *
  * ## Why `usePollar()` is not called here
  *
@@ -826,7 +828,11 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
   // The address and the código, for a shopper who is going to send it
   // themselves. Unchanged wherever one-click is not on offer; gone once the
   // wallet has paid, because from there a manual send is a second payment.
-  const showManual = !demoPays && !(walletPays && (walletSent || confirmed));
+  // Only when neither button exists. It used to hang on until the wallet had
+  // actually paid, so production showed the address under the button the whole
+  // time — which read as two competing instructions rather than one path with
+  // a footnote, and that is the confusion it is being taken out for.
+  const showManual = !demoPays && !walletPays;
   // The store has had four chances to say it knows this shopper and has not.
   // Most likely the frame's cookies are being blocked, which we cannot fix
   // from here — so the tab stops being the quiet option and becomes the loud
@@ -1008,14 +1014,16 @@ function CheckoutDialog({ cart, handoffUrl, chatId, onClose, onPaid, address, si
                 </>
               ) : null}
 
-              {/* Nothing to copy in preview: there is no wallet to paste it
-                  into, and an address nobody can pay from is noise. In
-                  production it is the second way rather than the only one, so
-                  it is introduced as such — and it is the way out for anyone
-                  who would rather not pay from their balance in one press. */}
+              {/* The last resort, and only that. Two ways to send the same
+                  importe, side by side, is a shopper deciding which of them
+                  is the real one — so wherever the app can pay, the button is
+                  the whole answer and this is not on screen. It comes back
+                  only where nothing can: a deployment with no demo secret, or
+                  a session the wallet path will not take. Then an address and
+                  a código are the difference between a slow payment and no
+                  payment at all. */}
               {showManual ? (
                 <>
-                  {walletPays ? <p className="ck-note">{copy.walletPayNote}</p> : null}
                   <dl className="ck-fields">
                     <CopyField label={copy.addressLabel} value={intent.address} testid="checkout-address" mono />
                     <CopyField label={copy.memoLabel} value={intent.memo} testid="checkout-memo" mono />

@@ -69,18 +69,22 @@ describe('checkout copy', () => {
     assert.match(checkoutCopy('mainnet').walletPayCta, /mis dólares/);
   });
 
-  it('RULE: the manual path is still offered, as a second way and not a failure', () => {
-    // The address and the código stay on screen under the button, for the
-    // shopper whose dollars are on an exchange. The sentence that introduces
-    // them must read as an alternative — "o mandalo vos" — rather than as
-    // something to fall back on after the button did not work.
+  it('RULE: the button is the only instruction where there is a button', () => {
+    // This rule replaced its opposite. The address and the código used to sit
+    // under the pay button with "O mandalo vos…" introducing them, offered as
+    // a second way for a shopper whose dollars are on an exchange. On screen
+    // it read as two competing instructions for one importe, so the manual
+    // path is now shown only where nothing can pay at all — and the sentence
+    // that introduced it has no job left, which is why `walletPayNote` is
+    // gone rather than blanked. See `showManual` in CheckoutModal.
     const real = checkoutCopy('mainnet');
-    assert.match(real.walletPayNote, /^O mandalo vos/);
-    assert.doesNotMatch(real.walletPayNote, /error|falló|no funciona|si no/i);
-    // And the lead names both, in the order they are offered, so a shopper who
-    // reads only the first line still knows the button is there.
-    assert.match(real.depositLead, /dólares que tenés en tu cuenta/);
-    assert.match(real.depositLead, /a mano/);
+    assert.equal('walletPayNote' in real, false);
+    // And the lead above the button is now true. It has always said "no hay
+    // nada que copiar" while an address and a código sat directly underneath
+    // it; taking them out is what makes that sentence honest, so it is pinned
+    // here rather than left to be read as boilerplate.
+    assert.match(real.walletPayLead, /saldo/);
+    assert.match(real.walletPayLead, /nada que copiar/);
   });
 
   it('RULE: a short balance is said before the press, and points nowhere false', () => {

@@ -53,10 +53,15 @@ describe('the one-click deposit', () => {
     assert.doesNotMatch(source, /setWalletError\(outcome\./);
   });
 
-  it('RULE: the address and the código survive one-click', () => {
-    // Somebody whose dollars sit on an exchange still needs them. Demoted
-    // below the button, not deleted — and gone only once the wallet has paid,
-    // when a manual send would be a second payment.
-    assert.match(source, /const showManual = !demoPays && !\(walletPays && \(walletSent \|\| confirmed\)\)/);
+  it('RULE: the address and the código show only where nothing can pay', () => {
+    // This rule replaced its opposite, and the reason is worth keeping. They
+    // used to survive one-click: demoted under the pay button and hidden only
+    // once the wallet had actually paid, so that a shopper whose dollars were
+    // on an exchange still had somewhere to send them. In front of a real
+    // shopper that was two ways to send one importe with nothing saying which
+    // counted. So the condition is now the absence of a button, not the
+    // absence of a press — and where neither button exists an address is
+    // still the difference between a slow payment and none.
+    assert.match(source, /const showManual = !demoPays && !walletPays;/);
   });
 });
