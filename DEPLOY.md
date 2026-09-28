@@ -239,7 +239,7 @@ Grouped by which of the two apps needs them.
 `STELLAR_RESOLVER_SECRET`, `STELLAR_RESOLVER_SECRET_MAINNET`,
 `FAUCET_ALLOWLIST_ADDRESSES`, `FAUCET_OPEN_TO_ALL`. These belong to the escrow
 rail and the testnet faucet, and neither has a button any more — see
-[Using it](#using-it-the-escrow-walkthrough-dormant). Leave them set if they
+[docs/flows.md](docs/flows.md#6-dormant-the-escrow). Leave them set if they
 are set; nothing calls them.
 
 `DEPOSIT_ADDRESS_*` is **public by nature** — it is printed on screen for the

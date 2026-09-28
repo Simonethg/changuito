@@ -1,14 +1,18 @@
 # changuito — documentation
 
-changuito is a chat app where an agent shops Argentine supermarkets over MCP and
-settles the basket in USDC on Stellar testnet.
+changuito is a chat app where an agent shops Argentine supermarkets over MCP,
+takes the exact store total in USDC on Stellar, and hands back a card the
+shopper pays the súper with.
+
+**Reviewing this for a hackathon? Start at [judges.md](judges.md).**
 
 | Document | What is in it |
 |---|---|
-| [architecture.md](architecture.md) | the system diagram, what each process is, and where the trust boundaries fall |
-| [flows.md](flows.md) | the five paths that matter, end to end: a chat turn, funding, payment, settlement, refund |
+| [judges.md](judges.md) | fifteen minutes in order, every claim mapped to the file that backs it, and what is real versus simulated |
+| [architecture.md](architecture.md) | the system diagram, the cross-origin wall, the money rail, and where the trust boundaries fall |
+| [flows.md](flows.md) | the paths that matter, end to end: a chat turn, funding, the deposit → card checkout, and the dormant escrow |
 | [stellar.md](stellar.md) | every Stellar technology used, and what each one is doing here |
-| [tech-stack.md](tech-stack.md) | the dependency list with versions, and why each one is there |
+| [tech-stack.md](tech-stack.md) | the dependency list with versions, the data stores, and every environment variable |
 | [e2e.md](e2e.md) | Playwright smoke against the live sites, and the GitHub Actions secrets |
 
 Elsewhere in the repo:
@@ -30,14 +34,27 @@ Elsewhere in the repo:
   agent searches Día over MCP, builds a real cart, hands back a real cart link
         │
         ▼
-  user confirms  ──►  escrow.open()   USDC: buyer ──► contract
-        │                              the basket is hashed into the order
-        ▼
-  user completes the basket at the store
+  the store's own checkout opens in a frame; the shopper logs in and
+  picks a delivery slot
         │
-        ├── done      ──►  escrow.settle()   USDC: contract ──► treasury
-        └── not done  ──►  escrow.refund()   USDC: contract ──► buyer
+        ▼
+  the server reads the *payable* total from the store's public cart
+  — items + envío − descuentos — and quotes it
+        │
+        ▼
+  one press: USDC ──► deposit account, with a código in the memo
+        │
+        ▼
+  Horizon confirms the payment landed. Nothing else is asked.
+        │
+        ▼
+  a card is shown, with that importe. The shopper pays the súper with it.
 ```
 
-Everything is testnet, and the USDC is a demo token this repo deploys and mints.
-Nothing here moves real money.
+Two networks, one path. Signed out is **modo prueba** on testnet, paid from a
+demo wallet this repo holds. Signed in with Pollar is **modo real** on mainnet,
+paid from the shopper's own account.
+
+The escrow contract is deployed on testnet and tested, and it is **not** on that
+path — [stellar.md](stellar.md#the-escrow-contract-dormant) says why, and what
+would put it back.
