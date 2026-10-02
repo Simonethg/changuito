@@ -328,6 +328,7 @@ test('the report page shows the error mascot and the home hero does not', () => 
   const panel = readFileSync(join(root, 'components/bug-report/bug-report-panel.tsx'), 'utf8');
   const form = readFileSync(join(root, 'components/bug-report/bug-report-form.tsx'), 'utf8');
   const home = readFileSync(join(root, 'components/landing/landing-page.tsx'), 'utf8');
+  const footer = readFileSync(join(root, 'components/landing/site-footer.tsx'), 'utf8');
   const css = readFileSync(join(root, 'components/bug-report/bug-report.module.css'), 'utf8');
 
   const header = page.slice(0, page.indexOf('</header>'));
@@ -356,10 +357,12 @@ test('the report page shows the error mascot and the home hero does not', () => 
   assert.equal(form.includes('mascot-exito'), false);
   assert.equal(form.includes('animacion-busqueda'), false);
   assert.equal(form.includes('animacion-cargando'), false);
-  assert.match(home, /href="\/reportarbug"/);
-  assert.match(home, /Reportar un bug/);
+  assert.match(home, /<SiteFooter \/>/);
+  assert.match(footer, /href="\/reportarbug"/);
+  assert.match(footer, /Reportar un bug/);
   assert.equal(home.includes('mascot-error'), false);
-  assert.equal(home.includes('/brand/animacion-cargando.gif'), true);
+  assert.equal(footer.includes('mascot-error'), false);
+  assert.equal(home.includes('/brand/animacion-cargando.gif'), false);
   assert.equal(home.includes('animacion-busqueda'), false);
 
   const mascot = readFileSync(join(root, 'public/brand/mascot-error.png'));

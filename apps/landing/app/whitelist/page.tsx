@@ -3,6 +3,7 @@ import Image from 'next/image';
 
 import { FounderTrust } from '@changuito/trust/ui';
 import { AnalyticsView } from '../../components/analytics/analytics-view';
+import { SiteFooter } from '../../components/landing/site-footer';
 import { JsonLd } from '../../components/seo/json-ld';
 import { WaitlistForm } from '../../components/waitlist/waitlist-form';
 import { WhitelistViewport } from '../../components/waitlist/whitelist-viewport';
@@ -90,6 +91,9 @@ export default async function WhitelistPage({
         </div>
         <FounderTrust className={styles.fine} />
       </main>
+      <div className={styles.footerWrap}>
+        <SiteFooter navBase="/" trust={false} />
+      </div>
     </div>
   );
 }

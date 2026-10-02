@@ -3,10 +3,10 @@ import { HERO } from '../../lib/copy';
 import styles from './landing.module.css';
 
 /** Beta: try CTAs stay on this site. APP_URL is not a navigation target. */
-export function TryLink({ testId }: { testId: string }) {
+export function TryLink({ testId, label = HERO.cta }: { testId: string; label?: string }) {
   return (
     <a className={styles.cta} href="/whitelist" data-testid={testId}>
-      {HERO.cta}
+      {label}
       {/* Decorative stand-in for the old arrow. The link name stays the CTA text. */}
       <img
         className={styles.ctaMascot}

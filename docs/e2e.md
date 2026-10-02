@@ -45,8 +45,8 @@ win over that file.
 ## What the specs assert
 
 - **Landing.** The home page renders, the three nav anchors (`#como-funciona`,
-  `#pagos`, `#faq`) scroll into view, **Probar Changuito** goes to
-  `/whitelist`, and one FAQ item expands.
+  `#pagos`, `#faq`) scroll into view, **Probar Changuito** and **Sumate a la beta**
+  go to `/whitelist`, and one FAQ item expands.
 - **Whitelist.** An empty submit shows the name and email errors. A name plus
   `no-es-un-email` shows `Revisá tu email.` The test does not submit a real
   signup.

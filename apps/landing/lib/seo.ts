@@ -19,7 +19,7 @@ import {
 export const TITLE_SUFFIX = ' · Changuito';
 
 export const HOME_DESCRIPTION =
-  'Asistente de IA para el súper en Argentina. Changuito compara productos, arma el carrito y te deja listo para pagar con tarjeta o USDC.';
+  'En Argentina, Changuito compara precios entre supermercados y te deja el carrito listo para pagar con tarjeta o USDC.';
 
 export const OG_IMAGE = {
   url: '/og.jpg',
@@ -44,7 +44,7 @@ export const INDEXABLE_ROBOTS: Metadata['robots'] = {
 export const PUBLIC_PAGES = [
   {
     path: '/',
-    title: 'Pedí el súper inteligente',
+    title: 'Decile qué querés cocinar',
     description: HOME_DESCRIPTION,
     changeFrequency: 'weekly',
     priority: 1,

@@ -450,3 +450,15 @@ select.control {
     font-size: 0.8125rem;
   }
 }
+
+/* Home footer below the form. flex:none keeps it out of the resting band:
+   main grows to fill the viewport, so the footer starts below the fold and
+   the page scrolls to it. Hidden while the keyboard is up. */
+.footerWrap {
+  flex: none;
+  background: var(--paper);
+}
+
+:global(:root[data-keyboard='open']) .footerWrap {
+  display: none;
+}

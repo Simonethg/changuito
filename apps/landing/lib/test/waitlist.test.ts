@@ -122,6 +122,10 @@ test('the whitelist page fits the visual viewport and hides trust while the keyb
   assert.match(css, /height:\s*var\(--vvh, 100svh\)/);
   assert.match(css, /overflow-y:\s*auto/);
   assert.match(css, /data-keyboard='open'/);
+  assert.match(css, /\.footerWrap\s*\{[^}]*flex:\s*none/s);
+  assert.match(css, /data-keyboard='open'\]\) \.footerWrap\s*\{[^}]*display:\s*none/s);
+  assert.match(page, /className=\{styles\.footerWrap\}/);
+  assert.match(page, /<SiteFooter navBase="\/" trust=\{false\} \/>/);
   assert.match(page, /interactiveWidget:\s*'resizes-content'/);
   assert.match(page, /WhitelistViewport/);
   assert.match(viewport, /dataset\.keyboard = 'open'/);

@@ -14,6 +14,7 @@ function source(path: string): string {
 test('the home header is the wordmark alone', () => {
   const header = source(join(landing, 'components/landing/site-header.tsx'));
   const page = source(join(landing, 'components/landing/landing-page.tsx'));
+  const footer = source(join(landing, 'components/landing/site-footer.tsx'));
   const lockup = source(join(landing, 'components/landing/brand-lockup.tsx'));
 
   assert.match(header, /<BrandLockup variant="wordmark" \/>/);
@@ -33,12 +34,16 @@ test('the home header is the wordmark alone', () => {
   assert.match(character, />Changuito</);
 
   assert.match(page, /<BrandLockup className=\{styles\.bofuBrand\} \/>/);
-  assert.match(page, /<BrandLockup className=\{styles\.footerBrand\} \/>/);
+  assert.match(page, /<SiteFooter \/>/);
+  assert.match(footer, /<BrandLockup className=\{styles\.footerBrand\} \/>/);
   assert.equal(page.includes('variant="wordmark"'), false);
-  assert.equal(page.includes('/brand/animacion-cargando.gif'), true);
+  assert.equal(footer.includes('variant="wordmark"'), false);
+  assert.equal(page.includes('/brand/animacion-cargando.gif'), false);
+  assert.match(page, /<HeroDemo \/>/);
   assert.equal(page.includes('animacion-busqueda'), false);
   assert.equal(header.includes('BrandLockup'), true);
   assert.equal(page.includes('BrandLockup'), true);
+  assert.equal(footer.includes('BrandLockup'), true);
 });
 
 test('the shopper header is the wordmark alone, not the mascot and not type', () => {

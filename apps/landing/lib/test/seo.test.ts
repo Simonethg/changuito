@@ -77,7 +77,7 @@ test('each public route has a unique title, description and canonical', () => {
   assert.equal(canonicalUrl('/'), SITE_URL);
   assert.equal(canonicalUrl('/whitelist'), `${SITE_URL}/whitelist`);
   assert.equal(canonicalUrl('/reportarbug'), `${SITE_URL}/reportarbug`);
-  assert.equal(documentTitle(publicPage('/').title), 'Pedí el súper inteligente · Changuito');
+  assert.equal(documentTitle(publicPage('/').title), 'Decile qué querés cocinar · Changuito');
   assert.match(HOME_DESCRIPTION, /Argentina/);
   assert.match(HOME_DESCRIPTION, /tarjeta o USDC/);
   assert.equal(HOME_DESCRIPTION.toLowerCase().includes('blockchain'), false);
@@ -188,7 +188,10 @@ test('public pages keep one h1 and key images have alt text', () => {
   assert.equal(bug.match(/<h1[\s>]/g)?.length ?? 0, 0);
   assert.equal(bugPanel.match(/<h1[\s>]/g)?.length, 1);
   assert.equal(home.includes('<h4'), false);
-  assert.match(home, /alt="Le caen los productos al carrito de Changuito"/);
+  assert.match(home, /<HeroDemo \/>/);
+  const demo = readFileSync(join(root, 'components/landing/hero-demo.tsx'), 'utf8');
+  assert.match(demo, /<figcaption/);
+  assert.equal(home.includes('animacion-cargando'), false);
   assert.match(bug, /src="\/brand\/mascot-error.png"/);
   assert.match(bug, /alt="Changuito"/);
   assert.equal(home.includes('mascot-error'), false);

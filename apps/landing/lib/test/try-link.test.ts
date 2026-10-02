@@ -13,7 +13,7 @@ test('the try CTA uses the locked running mascot instead of an arrow', () => {
   assert.match(source, /href="\/whitelist"/);
   assert.equal(source.includes('href={APP_URL}'), false);
   assert.equal(source.includes('app.changuito.me'), false);
-  assert.match(source, /\{HERO\.cta\}/);
+  assert.match(source, /HERO\.cta/);
   assert.match(source, /src="\/brand\/mascota-corriendo\.png"/);
   assert.match(source, /alt=""/);
   assert.match(source, /aria-hidden="true"/);

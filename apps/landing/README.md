@@ -123,7 +123,7 @@ El kit completo vive en `apps/branding/` (manuals, logo, mascota, pattern, motio
 
 | Público | Origen |
 |---|---|
-| `public/brand/animacion-cargando.gif` | `apps/branding/motion/animacion-cargando.gif` (hero: le caen los productos al carrito) |
+| `public/brand/animacion-cargando.gif` | `apps/branding/motion/animacion-cargando.gif` (asset de marca; el hero ya no lo usa: es una demo en código) |
 | `public/brand/mascot-idle.png` | `apps/branding/mascot/mascota-idle.png` (movimiento reducido, header de `/whitelist`, pie y cierre) |
 | `public/brand/mascota-corriendo.png` | `apps/branding/mascot/mascota-corriendo.png` (CTA, en el lugar de la flecha) |
 | `public/brand/wordmark.png` | `apps/branding/logo/wordmark.png` (lettering chunky con Sol de Mayo). Header de `/` (solo), `/whitelist` y `/reportarbug`. El mismo archivo está en `apps/web/public/brand`. |

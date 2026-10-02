@@ -127,6 +127,8 @@ test('track props drop personal data and keep the allowlist', () => {
   assert.equal(outboundLabel('https://www.linkedin.com/in/fabio-laura-yavi'), 'fabio_linkedin');
   assert.equal(outboundLabel('https://x.com/appchanguito'), 'x');
   assert.equal(outboundLabel('https://instagram.com/appchanguito'), 'instagram');
+  assert.equal(outboundLabel('https://www.linkedin.com/company/appchanguito/'), 'linkedin');
+  assert.equal(outboundLabel('https://www.linkedin.com/company/appchanguito/?viewAsMember=true'), undefined);
   assert.equal(outboundLabel('https://instagram.com/otra'), undefined);
   assert.doesNotThrow(() => track('whitelist_submit_success', { error_type: 'server' }));
 });

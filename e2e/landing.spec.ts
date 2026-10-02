@@ -7,8 +7,17 @@ test.describe('landing', () => {
     const errors = collectPageErrors(page);
     await page.goto('/');
 
-    await expect(page.getByRole('heading', { level: 1, name: /Pedí el súper/ })).toBeVisible();
-    await expect(page.getByText('Changuito compara productos, arma el carrito').first()).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: /Decile qué querés cocinar/ })).toBeVisible();
+    await expect(page.getByText('Compara precios entre supermercados').first()).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Le hablás como a alguien de tu casa' })).toBeVisible();
+    await expect(
+      page.getByText('El mismo producto no cuesta igual en cada cadena. Changuito los pone juntos y te muestra la diferencia.'),
+    ).toBeVisible();
+    await expect(page.getByText(/AquePrecio/)).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Changuito en LinkedIn' })).toHaveAttribute(
+      'href',
+      'https://www.linkedin.com/company/appchanguito/',
+    );
 
     const nav = page.getByRole('navigation', { name: 'Principal' });
     await expect(nav.getByRole('link', { name: 'Cómo funciona' })).toBeVisible();
@@ -24,10 +33,14 @@ test.describe('landing', () => {
     await nav.getByRole('link', { name: 'Ayuda' }).click();
     await expect(page.locator('#faq')).toBeInViewport();
 
-    const faq = page.getByRole('button', { name: '¿Cómo pago?' });
+    const faq = page.getByRole('button', { name: '¿Puedo cambiar lo que armó?' });
     await faq.click();
     await expect(faq).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByText('Con tarjeta o USDC.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Sí. Podés sacar o sumar productos antes de pagar.', { exact: true })).toBeVisible();
+
+    const closing = page.getByRole('link', { name: 'Sumate a la beta' });
+    await expect(closing).toBeVisible();
+    await expect(closing).toHaveAttribute('href', '/whitelist');
 
     const ctas = page.getByRole('link', { name: 'Probar Changuito' });
     await expect(ctas.first()).toBeVisible();

@@ -87,6 +87,17 @@ export function InstagramIcon({ className }: IconProps) {
   );
 }
 
+export function LinkedInIcon({ className }: IconProps) {
+  return (
+    <svg {...socialStroke(className)}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M8 11v6" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
+      <path d="M12 17v-3.5a2 2 0 0 1 4 0V17" />
+    </svg>
+  );
+}
+
 const ICONS = {
   ask: AskIcon,
   compare: CompareIcon,

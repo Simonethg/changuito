@@ -18,7 +18,7 @@ export type AnalyticsEvent =
   | 'bug_report_success'
   | 'outbound_click';
 
-export type OutboundLabel = 'simoneth_linkedin' | 'fabio_linkedin' | 'x' | 'instagram';
+export type OutboundLabel = 'simoneth_linkedin' | 'fabio_linkedin' | 'x' | 'instagram' | 'linkedin';
 
 export type TrackProps = {
   page_path?: string;
@@ -134,7 +134,8 @@ export function sanitizeProps(props?: TrackProps): Record<string, string> {
     props.label === 'simoneth_linkedin' ||
     props.label === 'fabio_linkedin' ||
     props.label === 'x' ||
-    props.label === 'instagram'
+    props.label === 'instagram' ||
+    props.label === 'linkedin'
   ) {
     out.label = props.label;
   }
@@ -164,6 +165,7 @@ export function outboundLabel(href: string): OutboundLabel | undefined {
   if (host === 'instagram.com' && path === '/appchanguito') return 'instagram';
   if (host === 'linkedin.com' && path === '/in/simonethg') return 'simoneth_linkedin';
   if (host === 'linkedin.com' && path === '/in/fabio-laura-yavi') return 'fabio_linkedin';
+  if (host === 'linkedin.com' && path === '/company/appchanguito' && url.search === '') return 'linkedin';
   return undefined;
 }
 

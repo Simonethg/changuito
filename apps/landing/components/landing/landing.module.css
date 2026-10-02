@@ -1,6 +1,7 @@
 .page {
   --ink: #2a1a14;
-  --ink-soft: #4a332c;
+  /* Warm gray, 7.2:1 on --paper. Body secondary text has to clear WCAG AA (4.5:1). */
+  --ink-soft: #5c534c;
   --sun: #f4b942;
   --sun-hover: #e3a82a;
   --sun-active: #d39a1c;
@@ -117,9 +118,9 @@
   margin-left: auto;
   width: 44px;
   height: 44px;
-  border: 0;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--sun);
+  background: transparent;
   color: var(--ink);
   align-items: center;
   justify-content: center;
@@ -128,7 +129,7 @@
 }
 
 .menuButton:hover {
-  background: var(--sun-hover);
+  background: rgba(42, 26, 20, 0.06);
 }
 
 .menuGlyph {
@@ -200,73 +201,34 @@
 .heroInner {
   max-width: 1120px;
   margin: 0 auto;
-  /* Desktop: the mascot shares the action-row baseline. A deep bottom
-     pad used to leave it floating above an empty band under the try button.
-     Narrow viewports override this block. */
-  padding: 48px 24px 24px;
+  padding: 48px 24px 32px;
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
-  gap: 24px 32px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 28px 40px;
+  align-items: center;
 }
 
 .h1 {
   margin: 0;
-  font-size: clamp(3.25rem, 6.2vw, 5rem);
+  font-size: clamp(1.9rem, 3.3vw, 2.75rem);
   font-weight: 800;
-  letter-spacing: -0.04em;
-  line-height: 0.98;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
   text-wrap: balance;
 }
 
 .sub {
-  margin: 24px 0 0;
-  max-width: 36ch;
-  font-size: 1.25rem;
+  margin: 20px 0 0;
+  max-width: 38ch;
+  font-size: 1.125rem;
   line-height: 1.45;
   color: var(--ink-soft);
-}
-
-.payLine {
-  margin: 16px 0 0;
-  font-size: 1.125rem;
-  font-weight: 700;
 }
 
 .heroActions {
   display: flex;
   align-items: center;
-  margin-top: 32px;
-}
-
-.mascotFrame {
-  justify-self: start;
-  width: min(100%, 440px);
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-start;
-}
-
-.mascot,
-.mascotMotion {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-.mascotStill {
-  display: none;
-  width: auto;
-  max-width: 100%;
-  max-height: 560px;
-}
-
-/* Idle pose is a tall portrait. Cap it in the hero so reduced motion
-   uses the same slot as the loading GIF instead of hanging below the button. */
-.mascotFrame .mascotStill {
-  max-height: 300px;
-  object-fit: contain;
-  object-position: left bottom;
+  margin-top: 28px;
 }
 
 .section {
@@ -302,26 +264,20 @@
 }
 
 .steps,
-.benefits,
-.payGrid {
+.uses {
   list-style: none;
-  margin: 40px 0 0;
+  margin: 32px 0 0;
   padding: 0;
   display: grid;
   gap: 16px;
 }
 
 .steps {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.benefits {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.payGrid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 32px;
+.uses {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .card {
@@ -334,10 +290,6 @@
   gap: 12px;
 }
 
-.benefitCard {
-  border-top: 4px solid var(--clay);
-}
-
 .stepHead {
   display: flex;
   align-items: center;
@@ -348,8 +300,8 @@
   width: 40px;
   height: 40px;
   border-radius: 999px;
-  background: var(--sun);
-  color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
   font-weight: 800;
   display: grid;
   place-items: center;
@@ -357,7 +309,7 @@
 }
 
 .stepIcon {
-  color: var(--clay);
+  color: var(--ink);
 }
 
 .cardTitle {
@@ -378,9 +330,12 @@
   align-items: flex-start;
   gap: 12px;
   margin: 24px 0 0;
+  max-width: 62ch;
   padding: 16px 20px;
   border-radius: 16px;
-  background: var(--sun);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--sun);
+  background: #fff;
   color: var(--ink);
   font-weight: 700;
   line-height: 1.45;
@@ -572,8 +527,436 @@
   line-height: 1.5;
 }
 
+.fact {
+  margin: 20px 0 0;
+  max-width: 36ch;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.4;
+  text-wrap: balance;
+}
+
+.compareLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 0.9fr);
+  gap: 28px 40px;
+  align-items: center;
+}
+
+.compareCard {
+  margin: 20px 0 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.compareLabel {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.compareRow {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.compareChain {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.barTrack {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(42, 26, 20, 0.08);
+  overflow: hidden;
+}
+
+.barShort,
+.barLong {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink);
+}
+
+.barShort {
+  width: 71%;
+}
+
+.barLong {
+  width: 100%;
+}
+
+/* Product demo. Final frame is the default so reduced motion, print and
+   a failed animation still show the cart. The loop runs only when the
+   visitor has no preference against motion. 20s, opacity and transform. */
+.demo {
+  margin: 0;
+  width: 100%;
+  max-width: 440px;
+  justify-self: end;
+}
+
+.demoWindow {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(42, 26, 20, 0.08);
+}
+
+.demoTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+
+.demoMark {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  display: block;
+}
+
+.demoName {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.demoThread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.demoUser {
+  align-self: flex-end;
+  max-width: 88%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 14px 14px 2px 14px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.demoStatus {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+  font-style: italic;
+  line-height: 1.35;
+}
+
+.demoDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink);
+  flex: none;
+}
+
+.demoGrid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.demoCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.demoChain {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.demoProduct {
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+.demoPrice,
+.demoAmount,
+.demoTotal strong {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.demoPrice {
+  font-size: 0.9375rem;
+}
+
+.demoCart {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.demoCartHead,
+.demoCartFoot {
+  padding: 8px 12px;
+}
+
+.demoCartHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.demoCartTitle {
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+
+.demoLines {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.demoLines li {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 0.8125rem;
+}
+
+.demoQty {
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.demoCartFoot {
+  border-top: 1px solid var(--line);
+}
+
+.demoTotal {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.875rem;
+}
+
+.demoTotal strong {
+  font-size: 1rem;
+}
+
+.demoActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.demoPay,
+.demoPayGhost,
+.demoSend {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.demoPay,
+.demoSend {
+  background: var(--sun);
+  color: var(--ink);
+}
+
+.demoPayGhost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.demoComposer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.demoField {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+}
+
+.beatHold {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .beatHold {
+    opacity: 0;
+    animation-duration: 20s;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-fill-mode: both;
+  }
+
+  .beatUser {
+    animation-name: demo-user;
+  }
+
+  .beatCard1 {
+    animation-name: demo-card-1;
+  }
+
+  .beatCard2 {
+    animation-name: demo-card-2;
+  }
+
+  .beatCard3 {
+    animation-name: demo-card-3;
+  }
+
+  .beatCard4 {
+    animation-name: demo-card-4;
+  }
+
+  .beatGrid {
+    animation-name: demo-grid;
+  }
+
+  .beatCart {
+    animation-name: demo-cart;
+  }
+
+  .beatPay {
+    animation-name: demo-pay;
+  }
+
+  .beatStatus {
+    display: flex;
+    opacity: 0;
+    max-height: 0;
+    animation: demo-status 20s linear infinite both;
+  }
+
+  .demoDot {
+    animation: demo-pulse 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes demo-user {
+  0%, 3% { opacity: 0; transform: translateY(8px); }
+  7%, 94% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; }
+}
+
+@keyframes demo-status {
+  0%, 8% { opacity: 0; max-height: 0; }
+  14%, 32% { opacity: 1; max-height: 2.6rem; }
+  40%, 100% { opacity: 0; max-height: 0; }
+}
+
+@keyframes demo-card-1 {
+  0%, 36% { opacity: 0; transform: translateY(8px); }
+  42%, 94% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; }
+}
+
+@keyframes demo-card-2 {
+  0%, 42% { opacity: 0; transform: translateY(8px); }
+  48%, 94% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; }
+}
+
+@keyframes demo-card-3 {
+  0%, 48% { opacity: 0; transform: translateY(8px); }
+  54%, 94% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; }
+}
+
+@keyframes demo-card-4 {
+  0%, 54% { opacity: 0; transform: translateY(8px); }
+  60%, 94% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; }
+}
+
+@keyframes demo-grid {
+  0%, 34% { opacity: 0; max-height: 0; }
+  42%, 94% { opacity: 1; max-height: 240px; }
+  100% { opacity: 0; max-height: 0; }
+}
+
+@keyframes demo-cart {
+  0%, 62% { opacity: 0; max-height: 0; transform: translateY(10px); }
+  70%, 94% { opacity: 1; max-height: 280px; transform: translateY(0); }
+  100% { opacity: 0; max-height: 0; }
+}
+
+@keyframes demo-pay {
+  0%, 72% { opacity: 0; transform: translateY(6px); }
+  78%, 94% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; }
+}
+
+@keyframes demo-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
 @media (max-width: 1000px) {
-  .steps {
+  .steps,
+  .uses {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -622,13 +1005,17 @@
 
   .heroInner {
     grid-template-columns: 1fr;
-    justify-items: start;
-    padding: 16px 20px 24px;
-    gap: 8px;
+    justify-items: stretch;
+    padding: 20px 20px 28px;
+    gap: 20px;
   }
 
   .h1 {
-    font-size: clamp(2.25rem, 8vw, 3.25rem);
+    font-size: clamp(1.85rem, 7vw, 2.4rem);
+  }
+
+  .h2 {
+    font-size: clamp(1.65rem, 6vw, 2.1rem);
   }
 
   .sub {
@@ -636,44 +1023,27 @@
     font-size: 1.0625rem;
   }
 
-  .payLine {
-    margin-top: 8px;
-  }
-
   .heroActions {
     margin-top: 16px;
   }
 
-
-  .mascotFrame {
+  .demo {
     justify-self: center;
-    justify-content: center;
-    width: min(100%, 360px);
-    margin-top: 0;
-  }
-
-  .mascotFrame .mascotStill {
-    max-height: 240px;
-    object-position: center top;
+    max-width: 440px;
   }
 
   .section {
     padding: 56px 20px;
   }
 
-  .benefits {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 700px) {
-  .payGrid {
+  .compareLayout {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 640px) {
-  .steps {
+  .steps,
+  .uses {
     grid-template-columns: 1fr;
   }
 
@@ -692,7 +1062,7 @@
   }
 }
 
-/* iPhone 13/14 and similar (~390×844): keep the mascot directly under the try button. */
+/* iPhone 13/14 and similar (~390×844): headline, then the product demo. */
 @media (max-width: 480px) {
   .page {
     --header-h: 52px;
@@ -728,29 +1098,24 @@
     box-sizing: border-box;
     height: auto;
     max-height: none;
-    padding: 8px 16px 12px;
-    gap: 0;
+    padding: 16px 16px 24px;
+    gap: 16px;
   }
 
   .h1 {
-    font-size: 2rem;
-    line-height: 1.02;
+    font-size: 1.85rem;
+    line-height: 1.08;
     letter-spacing: -0.03em;
   }
 
   .sub {
-    margin-top: 6px;
-    font-size: 0.9375rem;
-    line-height: 1.3;
-  }
-
-  .payLine {
-    margin-top: 4px;
-    font-size: 0.9375rem;
+    margin-top: 10px;
+    font-size: 1rem;
+    line-height: 1.4;
   }
 
   .heroActions {
-    margin-top: 8px;
+    margin-top: 14px;
   }
 
   .cta {
@@ -758,22 +1123,13 @@
     padding: 10px 16px;
   }
 
-  .mascotFrame {
-    flex: 0 0 auto;
-    width: min(100%, 300px);
-    margin: 0 auto;
-    align-items: flex-start;
-    justify-content: center;
+  .demo {
+    width: 100%;
+    max-width: none;
   }
 
-  .mascotFrame .mascotMotion,
-  .mascotFrame .mascotStill {
-    width: 100%;
-    height: auto;
-    max-width: 100%;
-    max-height: 200px;
-    object-fit: contain;
-    object-position: center top;
+  .fact {
+    font-size: 1.0625rem;
   }
 }
 
@@ -785,11 +1141,13 @@
     scroll-behavior: auto !important;
   }
 
-  .mascotMotion {
-    display: none;
+  .beatHold,
+  .beatPay {
+    opacity: 1 !important;
+    transform: none !important;
   }
 
-  .mascotStill {
-    display: block;
+  .beatStatus {
+    display: none !important;
   }
 }
