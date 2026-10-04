@@ -41,7 +41,7 @@ export interface Provider {
    * (the hosted model). There is only the hosted model now, so every failure is
    * the end of the turn and nothing reads this but the log line.
    */
-  readonly kind: 'anthropic';
+  readonly kind: 'anthropic' | 'openai';
   /** The model name, for the log line and the dev banner. */
   readonly label: string;
   hop(req: HopRequest, cb: HopCallbacks): Promise<HopResult>;

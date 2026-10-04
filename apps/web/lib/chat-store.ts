@@ -165,6 +165,9 @@ function packBlock(b: Block): Block | null {
       // `failed` is deliberately dropped. A restored transcript is a record,
       // and the retry control it drives cannot work against a session the
       // server has forgotten.
+      // The photo is dropped too. It is hundreds of kilobytes, and this store
+      // is the shopper's words, not a camera roll. The live bubble still shows
+      // it; the model keeps it for the hour the turn store holds the chat.
       return { kind: 'user', id: b.id, text: b.text };
     case 'say':
       // `thinking` is not kept: it is transient by design (CLAUDE.md §6) and

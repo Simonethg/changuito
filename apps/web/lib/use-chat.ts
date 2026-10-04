@@ -21,6 +21,7 @@ import type { NetworkId } from './deployments.ts';
 import { notifyHumanRequired, SOLO_HUMANOS } from './human-gate-ui';
 import { DEFAULT_LANG, inLang, type Lang } from './lang.ts';
 import { LOGIN_REQUIRED, LOGIN_REQUIRED_MESSAGE, loginRequiredMessage } from './login-constants';
+import type { ChatImage } from './chat-image.ts';
 import { parseEvents, type ChatRequest } from './protocol';
 import { ensureUserCookie } from './session-login';
 import type { WalletSigner } from './wallet-proof.ts';
@@ -125,7 +126,7 @@ export function useChat(auth?: UseChatAuth) {
    * be swallowed by a flag that has not been cleared yet. The caller owns
    * `inFlight`.
    */
-  const run = useCallback(async (text: string) => {
+  const run = useCallback(async (text: string, image?: ChatImage) => {
     const controller = new AbortController();
     abort.current = controller;
 
@@ -136,6 +137,7 @@ export function useChat(auth?: UseChatAuth) {
         snapshot: snapshot.current,
         ...(authRef.current.network ? { network: authRef.current.network } : {}),
         ...(authRef.current.lang ? { lang: authRef.current.lang } : {}),
+        ...(image ? { image } : {}),
       };
       return fetch('/api/chat', {
         method: 'POST',
@@ -257,13 +259,13 @@ export function useChat(auth?: UseChatAuth) {
   }, []);
 
   const begin = useCallback(
-    async (text: string, prepare: () => void) => {
+    async (text: string, image: ChatImage | undefined, prepare: () => void) => {
       if (inFlight.current) return;
       inFlight.current = true;
       if (authRef.current.isAuthenticated) setLoginRequired(false);
       prepare();
       try {
-        await run(text);
+        await run(text, image);
       } finally {
         abort.current = null;
         inFlight.current = false;
@@ -273,17 +275,17 @@ export function useChat(auth?: UseChatAuth) {
   );
 
   const send = useCallback(
-    async (message: string) => {
+    async (message: string, image?: ChatImage) => {
       const text = message.trim();
       if (!text) return;
       // The latch blocks guests only. A signed-in shopper keeps sending.
       if (loginRequired && !authRef.current.isAuthenticated) return;
 
       sessionId.current ||= crypto.randomUUID();
-      await begin(text, () => {
+      await begin(text, image, () => {
         setState((s) => {
           const base = authRef.current.isAuthenticated ? omitLoginLine(s) : s;
-          return base.streaming ? base : sendUser(base, text);
+          return base.streaming ? base : sendUser(base, text, image);
         });
       });
     },
@@ -304,11 +306,11 @@ export function useChat(auth?: UseChatAuth) {
    * what was said.
    */
   const retry = useCallback(
-    async (id: string, text: string) => {
+    async (id: string, text: string, image?: ChatImage) => {
       if (inFlight.current) return;
       setLoginRequired(false);
       sessionId.current ||= crypto.randomUUID();
-      await begin(text, () => {
+      await begin(text, image, () => {
         setState((s) => retryUser(s, id));
       });
     },

@@ -18,7 +18,10 @@ describe('shopper security headers', () => {
   it('sends the same baseline as www', () => {
     assert.equal(header('X-Content-Type-Options'), 'nosniff');
     assert.equal(header('Referrer-Policy'), 'strict-origin-when-cross-origin');
-    assert.match(header('Permissions-Policy') ?? '', /camera=\(\)/);
+    // Camera and mic are this origin only. An empty allowlist hides the
+    // browser prompt, so voice and a desktop photo never ask.
+    assert.match(header('Permissions-Policy') ?? '', /camera=\(self\).*microphone=\(self\)/);
+    assert.doesNotMatch(header('Permissions-Policy') ?? '', /camera=\(\)/);
     assert.match(header('Strict-Transport-Security') ?? '', /max-age=31536000/);
     assert.equal(header('Strict-Transport-Security', 'development'), undefined);
   });

@@ -156,6 +156,32 @@ export interface ChatCopy {
   newChat: string;
   stop: string;
   send: string;
+  /** Mic control. The stop label replaces it while dictation is open. */
+  voice: string;
+  voiceStop: string;
+  /** Shown while the recognizer is open, under the composer. */
+  listening: string;
+  attach: string;
+  camera: string;
+  /** Shown when the browser refuses the camera, and when the stream fails. */
+  cameraDenied: string;
+  cameraFailed: string;
+  /** The two controls on the desktop capture sheet. */
+  shutter: string;
+  cancelCam: string;
+  removePhoto: string;
+  /** Alt for the photo on the user's bubble. */
+  photoAlt: string;
+  /** Alt for the thumbnail still sitting in the composer. */
+  previewAlt: string;
+  /** Sent when they attach a photo and do not type. The model needs a sentence. */
+  photoOnly: string;
+  voiceUnsupported: string;
+  voiceDenied: string;
+  voiceMissed: string;
+  voiceFailed: string;
+  photoUnread: string;
+  photoHuge: string;
   /** Under the receipt: what was paid, and which order it was. */
   paidRef: (amount: string, orderId: string) => string;
   /** Rotating composer prompts. Each long one has a short twin for phones. */
@@ -334,6 +360,25 @@ const ES: UiCopy = {
     newChat: 'Nueva compra',
     stop: 'Parar',
     send: 'Enviar',
+    voice: 'Buscar por voz',
+    voiceStop: 'Parar el dictado',
+    listening: 'Escuchando… hablá y lo busco.',
+    attach: 'Adjuntar una imagen',
+    camera: 'Sacar una foto',
+    cameraDenied: 'Necesitamos permiso para usar la cámara.',
+    cameraFailed: 'No pudimos abrir la cámara.',
+    shutter: 'Usar esta foto',
+    cancelCam: 'Cancelar',
+    removePhoto: 'Quitar la imagen',
+    photoAlt: 'Imagen que enviaste',
+    previewAlt: 'Foto para buscar',
+    photoOnly: 'Buscá esto en el súper.',
+    voiceUnsupported: 'Este navegador no dicta. Probá con Chrome.',
+    voiceDenied: 'Necesitamos permiso para usar el micrófono.',
+    voiceMissed: 'No escuché nada. Probá de nuevo.',
+    voiceFailed: 'No pude usar el micrófono. Probá de nuevo.',
+    photoUnread: 'No pude leer esa imagen. Probá con otra foto.',
+    photoHuge: 'La foto es muy pesada. Probá con otra.',
     paidRef: (amount, orderId) => `Pagaste ${amount} · pedido ${orderId}`,
     placeholders: [
       {
@@ -511,6 +556,25 @@ const EN: UiCopy = {
     newChat: 'New purchase',
     stop: 'Stop',
     send: 'Send',
+    voice: 'Search by voice',
+    voiceStop: 'Stop dictation',
+    listening: "Listening… speak and I'll search.",
+    attach: 'Attach an image',
+    camera: 'Take a photo',
+    cameraDenied: 'We need permission to use the camera.',
+    cameraFailed: 'We could not open the camera.',
+    shutter: 'Use this photo',
+    cancelCam: 'Cancel',
+    removePhoto: 'Remove the image',
+    photoAlt: 'Image you sent',
+    previewAlt: 'Photo to search',
+    photoOnly: 'Find this at the store.',
+    voiceUnsupported: "This browser can't dictate. Try Chrome.",
+    voiceDenied: 'We need permission to use the microphone.',
+    voiceMissed: "I didn't hear anything. Try again.",
+    voiceFailed: "I couldn't use the microphone. Try again.",
+    photoUnread: "I couldn't read that image. Try another photo.",
+    photoHuge: 'That photo is too large. Try another one.',
     paidRef: (amount, orderId) => `You paid ${amount} · order ${orderId}`,
     // The stores are Argentine and so is the money, so the shop the shopper
     // is describing is the same one either way. Only the asking changes.

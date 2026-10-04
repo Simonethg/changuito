@@ -3,10 +3,12 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { callMcpTool, mcpToolsToAnthropic } from '../mcp/bridge';
 import type { Session } from '../mcp/session';
 import { DEFAULT_LANG, inLang, type Lang } from '../lang.ts';
+import type { ChatImage } from '../chat-image.ts';
 import type { UiEvent } from '../protocol';
 import { earlyLocationAsk } from './early-ask';
 import { changuitoPrompt, stateBanner } from './prompt';
 import { anthropicProvider } from './providers/anthropic';
+import { openaiProvider } from './providers/openai';
 import type { HopResult } from './providers/types';
 import {
   autoRenderCart,
@@ -34,6 +36,27 @@ export interface Turn {
 }
 
 export const newTurnState = (): Turn => ({ messages: [], cache: emptyCache() });
+
+/**
+ * The shopper's turn: the photo (when there is one), then what they said,
+ * then the session banner.
+ *
+ * The photo goes first so the model reads it before the instruction, and the
+ * banner stays last because that is the block `cacheable` marks. A photo is
+ * not a price the model is allowed to invent onto a card — it is evidence of
+ * what to search for, and the prompt tells it to name only what it can see.
+ */
+function shopperTurn(userText: string, banner: string, image?: ChatImage): Anthropic.ContentBlockParam[] {
+  const content: Anthropic.ContentBlockParam[] = [];
+  if (image) {
+    content.push({
+      type: 'image',
+      source: { type: 'base64', media_type: image.mediaType, data: image.data },
+    });
+  }
+  content.push({ type: 'text', text: userText }, { type: 'text', text: banner });
+  return content;
+}
 
 /**
  * The messages, with a cache breakpoint on the newest of them.
@@ -98,6 +121,8 @@ export async function runTurn(
   emit: (e: UiEvent) => void,
   /** Which language the browser's footer is set to. The route reads it off the request. */
   lang: Lang = DEFAULT_LANG,
+  /** A photo of a list, a product or a shelf. Absent when they only typed or spoke. */
+  image?: ChatImage,
 ): Promise<{ brain: string }> {
   const t0 = Date.now();
 
@@ -110,14 +135,14 @@ export async function runTurn(
   });
   if (ask) {
     turn.messages.push(
-      { role: 'user', content: [{ type: 'text', text: userText }, { type: 'text', text: stateBanner({}) }] },
+      { role: 'user', content: shopperTurn(userText, stateBanner({}), image) },
       { role: 'assistant', content: [{ type: 'text', text: ask }] },
     );
     emit({ t: 'text', delta: ask });
     return { brain: 'early-ask' };
   }
 
-  const brain = anthropicProvider();
+  const brain = process.env.OPENAI_API_KEY?.trim() ? openaiProvider() : anthropicProvider();
 
   const mcpTools = await mcpToolsToAnthropic(session.client);
   const tools = [...mcpTools, ...RENDER_TOOLS];
@@ -127,18 +152,16 @@ export async function runTurn(
 
   turn.messages.push({
     role: 'user',
-    content: [
-      { type: 'text', text: userText },
-      {
-        type: 'text',
-        text: stateBanner({
-          retailer: location?.retailer,
-          postalCode: location?.postalCode,
-          cartLines: cart?.lines.length,
-          cartTotal: cart?.total.display,
-        }),
-      },
-    ],
+    content: shopperTurn(
+      userText,
+      stateBanner({
+        retailer: location?.retailer,
+        postalCode: location?.postalCode,
+        cartLines: cart?.lines.length,
+        cartTotal: cart?.total.display,
+      }),
+      image,
+    ),
   });
 
   // The server's own instructions, then ours. Cached: both are stable for the

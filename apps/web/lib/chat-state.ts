@@ -1,6 +1,7 @@
 import type { Cart, Product } from '@changuito/mcp/types';
 import type { SessionSnapshot } from '@changuito/mcp/session';
 
+import type { ChatImage } from './chat-image.ts';
 import type { TurnStage, UiEvent } from './protocol';
 
 /**
@@ -43,7 +44,7 @@ export interface TurnProgress {
 }
 
 export type Block =
-  | { kind: 'user'; id: string; text: string; failed?: SendFailure }
+  | { kind: 'user'; id: string; text: string; failed?: SendFailure; image?: ChatImage }
   | { kind: 'say'; id: string; text: string; thinking: string; tools: ToolRun[] }
   | { kind: 'products'; id: string; items: Product[]; note?: string }
   | { kind: 'cart'; id: string; cart: Cart; handoffUrl?: string }
@@ -101,11 +102,14 @@ function settled(state: ChatState): ChatState {
   return rest;
 }
 
-export function sendUser(state: ChatState, text: string): ChatState {
+export function sendUser(state: ChatState, text: string, image?: ChatImage): ChatState {
+  const block: Extract<Block, { kind: 'user' }> = image
+    ? { kind: 'user', id: nextId(), text, image }
+    : { kind: 'user', id: nextId(), text };
   return {
     ...settled(state),
     streaming: true,
-    blocks: [...state.blocks, { kind: 'user', id: nextId(), text }],
+    blocks: [...state.blocks, block],
   };
 }
 
@@ -295,10 +299,12 @@ export function retryUser(state: ChatState, id: string): ChatState {
   const i = lastIndexWhere(state.blocks, (b) => b.kind === 'user' && b.id === id && Boolean(b.failed));
   if (i === -1) return state;
   const b = state.blocks[i] as Extract<Block, { kind: 'user' }>;
-  // Rebuilt rather than destructured: `failed` has to be absent, not
-  // undefined, so a retried block is indistinguishable from one that never
-  // failed.
-  const cleared: Block = { kind: 'user', id: b.id, text: b.text };
+  // Rebuilt rather than spread: `failed` has to be absent, not undefined, so
+  // a retried block is indistinguishable from one that never failed. The photo
+  // stays, or a retry of a picture would go out as words alone.
+  const cleared: Block = b.image
+    ? { kind: 'user', id: b.id, text: b.text, image: b.image }
+    : { kind: 'user', id: b.id, text: b.text };
   return {
     ...settled(state),
     streaming: true,

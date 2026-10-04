@@ -1,6 +1,7 @@
 import type { Cart, Product } from '@changuito/mcp/types';
 import type { SessionSnapshot } from '@changuito/mcp/session';
 
+import type { ChatImage } from './chat-image.ts';
 import type { NetworkId } from './deployments.ts';
 import type { Lang } from './lang.ts';
 
@@ -77,6 +78,12 @@ export interface ChatRequest {
    * browser. Anything unknown lands on the default.
    */
   lang?: Lang;
+  /**
+   * One photo of a list, a product or a shelf. Identifiers only would not
+   * work here — the picture is the thing being identified — so the bytes
+   * travel, and `isChatImage` is what keeps them to a JPEG the model can read.
+   */
+  image?: ChatImage;
 }
 
 export const SSE_HEADERS: Record<string, string> = {

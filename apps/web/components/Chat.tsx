@@ -7,7 +7,10 @@ import type { Cart } from '@changuito/mcp/types';
 
 import { starters } from '../lib/agent/prompt';
 import { errorCode, track, trackLoginStart } from '../lib/analytics';
+import type { ChatImage } from '../lib/chat-image.ts';
 import { canRetry, type Block, type ChatState } from '../lib/chat-state';
+import { prepareImage } from '../lib/prepare-image';
+import { useDictation, type DictationError } from '../lib/use-dictation';
 import type { Receipt } from '../lib/chat-store.ts';
 import { INTL_LOCALE, type Lang } from '../lib/lang.ts';
 import {
@@ -28,7 +31,7 @@ import type { WalletSigner } from '../lib/wallet-proof.ts';
 import { CartCard } from './CartCard';
 import { useLang } from './LangProvider';
 import { useNetwork } from './NetworkProvider';
-import { RetryIcon } from './icons';
+import { CameraIcon, ImageIcon, MicIcon, RetryIcon } from './icons';
 import { CheckoutModal } from './CheckoutModal';
 import { ProductGrid } from './ProductGrid';
 import { useShop } from './ShopProvider';
@@ -38,6 +41,13 @@ import { ToolTrail } from './ToolTrail';
 
 /** Same breakpoint as the phone layout in globals.css. */
 const NARROW = '(max-width: 560px)';
+
+const VOICE_NOTE: Record<DictationError, 'voiceUnsupported' | 'voiceDenied' | 'voiceMissed' | 'voiceFailed'> = {
+  unsupported: 'voiceUnsupported',
+  denied: 'voiceDenied',
+  missed: 'voiceMissed',
+  failed: 'voiceFailed',
+};
 
 /**
  * The placeholder for this screen.
@@ -97,7 +107,16 @@ function ChatCore({
   const { state, send, retry, stop, loginRequired, clearLoginRequired, resume, reset, currentSessionId } =
     useChat({ isAuthenticated, address, sign, network, lang });
   const [draft, setDraft] = useState('');
+  const [photo, setPhoto] = useState<ChatImage | null>(null);
+  const [readingPhoto, setReadingPhoto] = useState(false);
+  const [photoNote, setPhotoNote] = useState<string | null>(null);
+  const [cameraNote, setCameraNote] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const placeholder = useComposerPlaceholder(lang);
+  const draftRef = useRef('');
+  draftRef.current = draft;
+  const photoRef = useRef<ChatImage | null>(null);
+  photoRef.current = photo;
   // The basket the payment modal is open over. A cart, not a block id: the
   // user pays for what a card showed, and that object is the record of it.
   const [paying, setPaying] = useState<{ cart: Cart; handoffUrl?: string } | null>(null);
@@ -124,6 +143,8 @@ function ChatCore({
     if (request.kind === 'new') reset();
     else resume(request.chat);
     setDraft('');
+    setPhoto(null);
+    setPhotoNote(null);
     setPaying(null);
     ack();
   }, [request, ack, resume, reset]);
@@ -216,15 +237,135 @@ function ChatCore({
     if (!sessionReady || !undelivered || undelivered.failed?.reason !== 'login') return;
     if (resumed.current === undelivered.id) return;
     resumed.current = undelivered.id;
-    void retry(undelivered.id, undelivered.text);
+    void retry(undelivered.id, undelivered.text, undelivered.image);
   }, [sessionReady, undelivered, retry]);
 
+  const submitRef = useRef<(text: string) => void>(() => {});
+  const dictation = useDictation(lang, (text, done) => {
+    setDraft(text);
+    if (done) submitRef.current(text);
+  });
+  const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const submit = (text: string) => {
-    if (state.streaming || gated || readOnly || !text.trim()) return;
+    const attached = photoRef.current;
+    const trimmed = text.trim();
+    if (state.streaming || gated || readOnly || (!trimmed && !attached)) return;
+    const message = trimmed || copy.photoOnly;
+    dictation.stop();
     setDraft('');
+    setPhoto(null);
+    setPhotoNote(null);
     track('search_submit');
-    void send(text);
+    void send(message, attached ?? undefined);
   };
+  submitRef.current = submit;
+
+  const takePhoto = async (list: FileList | File | null) => {
+    const file = list instanceof File ? list : list?.[0];
+    if (fileRef.current) fileRef.current.value = '';
+    if (cameraRef.current) cameraRef.current.value = '';
+    if (!file) return;
+    setReadingPhoto(true);
+    setPhotoNote(null);
+    dictation.clearError();
+    const result = await prepareImage(file);
+    setReadingPhoto(false);
+    if (!result.ok) {
+      setPhotoNote(result.reason === 'huge' ? copy.photoHuge : copy.photoUnread);
+      return;
+    }
+    setPhoto(result.image);
+  };
+
+  const voiceNote =
+    dictation.error === null ? null : copy[VOICE_NOTE[dictation.error]];
+  const composerNote = dictation.listening ? copy.listening : (voiceNote ?? cameraNote ?? photoNote);
+
+  const closeCamera = () => {
+    for (const track of streamRef.current?.getTracks() ?? []) track.stop();
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraOpen(false);
+  };
+
+  // A phone already prompts from <input capture>. A computer's file picker
+  // never asks for the camera, so there the click opens a live preview.
+  const wantsLiveCamera = () =>
+    typeof navigator !== 'undefined' &&
+    typeof navigator.mediaDevices?.getUserMedia === 'function' &&
+    !window.matchMedia('(pointer: coarse)').matches;
+
+  const openCamera = async () => {
+    setCameraNote(null);
+    if (!wantsLiveCamera()) {
+      cameraRef.current?.click();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      streamRef.current = stream;
+      setCameraOpen(true);
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : '';
+      setCameraNote(
+        name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError'
+          ? copy.cameraDenied
+          : copy.cameraFailed,
+      );
+    }
+  };
+
+  const snap = async () => {
+    const video = videoRef.current;
+    const width = video?.videoWidth ?? 0;
+    const height = video?.videoHeight ?? 0;
+    const ctx = width && height ? document.createElement('canvas').getContext('2d') : null;
+    const canvas = ctx?.canvas;
+    if (!video || !canvas || !ctx) {
+      setCameraNote(copy.cameraFailed);
+      closeCamera();
+      return;
+    }
+    canvas.width = width;
+    canvas.height = height;
+    ctx.drawImage(video, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    closeCamera();
+    if (!blob) {
+      setCameraNote(copy.cameraFailed);
+      return;
+    }
+    await takePhoto(new File([blob], 'camera.jpg', { type: 'image/jpeg' }));
+  };
+
+  useEffect(() => {
+    if (!cameraOpen) return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (video && stream) {
+      video.srcObject = stream;
+      void video.play().catch(() => {});
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      for (const track of streamRef.current?.getTracks() ?? []) track.stop();
+      streamRef.current = null;
+      setCameraOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cameraOpen]);
+
+  useEffect(
+    () => () => {
+      for (const track of streamRef.current?.getTracks() ?? []) track.stop();
+    },
+    [],
+  );
 
   const sawGate = useRef(false);
   useEffect(() => {
@@ -396,6 +537,26 @@ function ChatCore({
           submit(draft);
         }}
       >
+        {photo ? (
+          <div className="composer-preview">
+            <img
+              src={`data:${photo.mediaType};base64,${photo.data}`}
+              alt={copy.previewAlt}
+              data-testid="composer-image-preview"
+              width={56}
+              height={56}
+            />
+            <button
+              type="button"
+              className="btn btn-ghost"
+              data-testid="composer-image-remove"
+              onClick={() => setPhoto(null)}
+              disabled={state.streaming || gated}
+            >
+              {copy.removePhoto}
+            </button>
+          </div>
+        ) : null}
         <textarea
           ref={composer}
           className="composer-input"
@@ -418,13 +579,91 @@ function ChatCore({
             {copy.stop}
           </button>
         ) : (
-          <button type="submit" className="btn" data-testid="composer-send" disabled={!draft.trim() || gated}>
+          <button
+            type="submit"
+            className="btn"
+            data-testid="composer-send"
+            disabled={(!draft.trim() && !photo) || gated || readingPhoto}
+          >
             {copy.send}
           </button>
         )}
+        <div className="composer-tools">
+          <button
+            type="button"
+            className="btn btn-ghost composer-tool"
+            data-testid="composer-mic"
+            aria-pressed={dictation.listening}
+            aria-label={dictation.listening ? copy.voiceStop : copy.voice}
+            disabled={state.streaming || gated || readingPhoto}
+            onClick={() => dictation.toggle(draftRef.current)}
+          >
+            <MicIcon />
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost composer-tool"
+            data-testid="composer-attach"
+            aria-label={copy.attach}
+            disabled={state.streaming || gated || readingPhoto}
+            onClick={() => fileRef.current?.click()}
+          >
+            <ImageIcon />
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost composer-tool"
+            data-testid="composer-camera"
+            aria-label={copy.camera}
+            disabled={state.streaming || gated || readingPhoto}
+            onClick={() => void openCamera()}
+          >
+            <CameraIcon />
+          </button>
+        </div>
+        {composerNote ? (
+          <p className="composer-hint" role={dictation.listening ? 'status' : 'alert'} data-testid="composer-note">
+            {composerNote}
+          </p>
+        ) : null}
         {state.streaming ? <TurnProgressLine state={state} /> : null}
+        <input
+          ref={fileRef}
+          className="composer-file"
+          type="file"
+          accept="image/*"
+          tabIndex={-1}
+          aria-hidden="true"
+          data-testid="composer-file"
+          onChange={(e) => void takePhoto(e.target.files)}
+        />
+        <input
+          ref={cameraRef}
+          className="composer-file"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          tabIndex={-1}
+          aria-hidden="true"
+          data-testid="composer-camera-input"
+          onChange={(e) => void takePhoto(e.target.files)}
+        />
       </form>
       )}
+
+      {cameraOpen ? (
+        <div className="camera-sheet" role="dialog" aria-modal="true" aria-label={copy.camera} data-testid="camera-sheet">
+          <video ref={videoRef} className="camera-sheet-video" autoPlay playsInline muted aria-label={copy.camera} />
+          <div className="camera-sheet-actions">
+            <button type="button" className="btn camera-sheet-btn" data-testid="composer-shutter" onClick={() => void snap()}>
+              {copy.shutter}
+            </button>
+            <button type="button" className="btn btn-ghost camera-sheet-btn" data-testid="composer-camera-cancel" onClick={closeCamera}>
+              {copy.cancelCam}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {paying ? (
         <CheckoutModal
@@ -534,11 +773,19 @@ export function UserBubble({
 }: {
   block: Extract<Block, { kind: 'user' }>;
   canRetry: boolean;
-  onRetry: (id: string, text: string) => void;
+  onRetry: (id: string, text: string, image?: ChatImage) => void;
 }) {
   const copy = uiCopy(useLang()).chat;
   return (
     <div className="msg-user">
+      {block.image ? (
+        <img
+          className="bubble-photo"
+          data-testid="user-photo"
+          alt={copy.photoAlt}
+          src={`data:${block.image.mediaType};base64,${block.image.data}`}
+        />
+      ) : null}
       <p className={block.failed ? 'bubble is-user is-undelivered' : 'bubble is-user'}>{block.text}</p>
       {block.failed ? (
         <div className="msg-failed">
@@ -560,7 +807,7 @@ export function UserBubble({
               className="btn btn-ghost btn-sm msg-retry"
               data-testid="message-retry"
               aria-label={copy.retryAria}
-              onClick={() => onRetry(block.id, block.text)}
+              onClick={() => onRetry(block.id, block.text, block.image)}
             >
               <RetryIcon />
               {copy.retry}

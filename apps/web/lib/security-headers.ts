@@ -140,8 +140,11 @@ export function appSecurityHeaders(
     { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
     { key: 'X-Frame-Options', value: 'DENY' },
     { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
-    // Passkeys (WebAuthn) keep their default of 'self'; nothing here names them.
-    { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()' },
+    // Passkeys (WebAuthn) keep their default of 'self'. Camera and microphone
+    // are granted to this origin only: the composer asks for them when the
+    // shopper taps the mic or the camera. `()` would refuse the prompt
+    // outright, which is what a desktop browser does when the header is empty.
+    { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()' },
   ];
   if (nodeEnv === 'production') {
     headers.push({ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' });

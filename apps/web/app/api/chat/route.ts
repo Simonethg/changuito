@@ -1,4 +1,5 @@
 import { newTurnState, runTurn } from '@/lib/agent/loop';
+import { isChatImage } from '@/lib/chat-image';
 import { turnStore } from '@/lib/agent/turn-store';
 import { archiveChat, chatTitle } from '@/lib/chat-archive';
 import { asNetwork, DEFAULT_NETWORK } from '@/lib/deployments';
@@ -51,6 +52,14 @@ export async function POST(req: Request): Promise<Response> {
       { status: 413 },
     );
   }
+  // Absent is the ordinary turn. Present has to be a photo we can hand the
+  // model. Checked before the guest counter, so a bad payload does not spend a turn.
+  if (body.image !== undefined && !isChatImage(body.image)) {
+    return Response.json(
+      { error: 'invalid_image', message: 'No pude usar esa imagen. Probá con otra foto.' },
+      { status: 400 },
+    );
+  }
 
   // Guests: at most FREE_TURNS chat POSTs per sessionId (server-side). Logged-in
   // users (chg_user cookie from /api/session/login after Pollar) skip the limit.
@@ -80,9 +89,12 @@ export async function POST(req: Request): Promise<Response> {
   // and OLLAMA_URL, and when the URL was removed while the provider name
   // stayed, the route still opened a stream that the loop then refused to run.
   // A single condition cannot disagree with itself that way.
-  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+  // OpenAI is the model this deployment searches with. Anthropic remains a
+  // fallback for a clone that still has that key and not the other. Either
+  // one is enough; requiring both is how a working key gets told it is missing.
+  if (!process.env.OPENAI_API_KEY?.trim() && !process.env.ANTHROPIC_API_KEY?.trim()) {
     return Response.json(
-      { error: 'Falta ANTHROPIC_API_KEY. Ver DEPLOY.md.' },
+      { error: 'Falta OPENAI_API_KEY. Cargala en el proyecto y volvé a publicar.' },
       { status: 500 },
     );
   }
@@ -120,7 +132,7 @@ export async function POST(req: Request): Promise<Response> {
           // per-session queue covers the whole read-modify-write and two tabs
           // on one id cannot each save a history missing the other's messages.
           const turn = (await turns.get(body.sessionId)) ?? newTurnState();
-          brain = (await runTurn(session, turn, body.message, emit, lang)).brain;
+          brain = (await runTurn(session, turn, body.message, emit, lang, body.image)).brain;
 
           // Only after a clean return. A turn that threw mid-hop can leave an
           // assistant `tool_use` with no matching `tool_result`, and the API

@@ -76,6 +76,38 @@ export function XIcon({ className }: { className?: string }) {
  * coastlines at 18px is a smudge, and the coastlines of *which* continent is
  * a question a language switch should not be answering.
  */
+/** Mic, for the composer's voice search. 22px in a 44px hit target. */
+export function MicIcon({ className }: { className?: string }) {
+  return (
+    <svg {...socialGlyph(className, 22)}>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M6 11a6 6 0 0 0 12 0" />
+      <path d="M12 17v3" />
+    </svg>
+  );
+}
+
+/** Picture, for attaching a list or a product already on the phone. */
+export function ImageIcon({ className }: { className?: string }) {
+  return (
+    <svg {...socialGlyph(className, 22)}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="8.5" cy="10" r="1.5" />
+      <path d="M3 16l5-4 4 3 3-2 6 5" />
+    </svg>
+  );
+}
+
+/** Camera, for taking the photo in the aisle. Not the Instagram mark. */
+export function CameraIcon({ className }: { className?: string }) {
+  return (
+    <svg {...socialGlyph(className, 22)}>
+      <path d="M4 8h3l2-2h6l2 2h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+      <circle cx="12" cy="13" r="3" />
+    </svg>
+  );
+}
+
 export function GlobeIcon({ className }: { className?: string }) {
   return (
     <svg {...socialGlyph(className, 16)}>
