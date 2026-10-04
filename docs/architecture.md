@@ -11,9 +11,10 @@ changuito is four things that happen to live in one repository:
 2. **An agent** (`apps/web/lib/agent`) that drives it. A streaming Anthropic
    tool loop with the MCP server's ten tools on one side and a handful of
    display-only tools on the other.
-3. **A payment rail** (`apps/web/lib/deposit*.ts`, `app/api/deposit`) — a
-   classic Stellar payment identified by a memo, confirmed by reading Horizon,
-   which unlocks a card the shopper types into the store's own payment form.
+3. **A payment rail** (`lib/pay`, `lib/ledger`, thin `/api/deposit` and
+   `/api/card`) — a classic Stellar payment identified by a memo, confirmed
+   through the ledger port (Horizon today), which unlocks a card the shopper
+   types into the store's own payment form.
 4. **A Soroban escrow** (`contracts/escrow`) that held USDC between "the user
    approved this basket" and "the basket actually happened". Deployed, tested,
    and **dormant**: see [Why the escrow is not on the rail](#why-the-escrow-is-not-on-the-rail).
@@ -247,11 +248,27 @@ the money — because those signatures *are* the authorization.
 stateDiagram-v2
     [*] --> Quoted: POST /api/deposit<br/>total read from the store
     Quoted --> Waiting: shopper presses pay
-    Waiting --> Waiting: GET /api/deposit polls Horizon
+    Waiting --> Waiting: GET /api/deposit polls the ledger
     Waiting --> Confirmed: a payment carrying the memo lands
     Confirmed --> Carded: POST /api/card<br/>claimed once, amount from the ledger
     Carded --> Paid: shopper types the card into Día's form
     Paid --> [*]: receipt, linked by orderGroup
+```
+
+The quote, the confirmation and the card read the chain through one port —
+`activeLedger()` in `lib/ledger/`. Routes under `/api/deposit` and `/api/card`
+are thin: they translate HTTP. The use cases live in `lib/pay/`. Today the
+port's only adapter is classic Stellar via Horizon; it holds no signing key.
+Postgres stays a direct call — the once-only card claim is a conditional
+`UPDATE`, not a second ledger. A second chain would replace the adapter behind
+the same port; the shop and the iframe would not move.
+
+```mermaid
+flowchart LR
+  routes["Rutas Next"] --> useCase["lib/pay"]
+  useCase --> ledger["Puerto Ledger"]
+  useCase --> pg["Postgres"]
+  ledger --> stellar["Adaptador Stellar"]
 ```
 
 Four properties worth naming:
@@ -259,12 +276,13 @@ Four properties worth naming:
 1. **The amount is never the client's figure.** `/api/deposit` prefers the total
    it reads from the store; `/api/card` derives the amount from the payment that
    actually landed. A figure sent by a client is a figure a client chose.
-2. **Confirmation is a public read.** Horizon only — no webhook to miss, no
-   secret to hold, nothing to reconcile. Anyone can check a deposit themselves.
-   `deposit-watch.ts` splits the matcher from the fetch on purpose: matching is
-   where the money bugs live (an off-by-one on the amount, a memo compared
-   case-sensitively, the wrong asset accepted because native has no issuer) and
-   all of it is pure arithmetic over records that fit in a test.
+2. **Confirmation is a public read.** The ledger port answers — today that is
+   Horizon — with no webhook to miss, no secret to hold, nothing to reconcile.
+   Anyone can check a deposit themselves. Matching is pure arithmetic over
+   payment records (`lib/ledger/match.ts`); the adapter only fetches. The
+   money bugs live in the matcher (an off-by-one on the amount, a memo compared
+   case-sensitively, the wrong asset accepted because native has no issuer),
+   and that file is what the tests pin.
 3. **A deposit buys exactly one card.** The claim is a conditional `UPDATE …
    where card_id is null`, not a read followed by a write, because two tabs
    pressing the button together is the ordinary case and not the adversarial one.
@@ -342,10 +360,12 @@ changuito/
 │       ├── agent/           loop, prompt, render-tools, turn-store, early-ask,
 │       │                     providers/ (the one model interface)
 │       ├── mcp/             boot (in-memory transport), bridge, session
+│       ├── ledger/          the deposit port; Stellar adapter; pure matcher
+│       ├── pay/             quote, confirm, issue card — no chain SDK
 │       ├── server/          the resolver key — server-only
 │       ├── chat-state.ts    the transcript reducer
 │       ├── order-check.ts   the server-side read of the shopper's cart
-│       ├── deposit*.ts      quoting, gating, and watching Horizon
+│       ├── deposit*.ts      address, memo, gate; deposit-watch is a facade
 │       ├── card.ts          issuing, claiming, and never writing the PAN down
 │       ├── db.ts            orders, cards, chats — one place, plain SQL
 │       └── stellar.ts       RPC, Horizon, friendbot, unit maths, explorer links

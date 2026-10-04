@@ -7,7 +7,7 @@
  * card funded with exactly this basket, usable once, terminated after; in
  * production one card per customer, topped up by each deposit and kept.
  * `keepsOneCard` below is the line between them, and the long version is in
- * app/api/card/route.ts.
+ * lib/pay/issue-card.ts.
  *
  * ## What stops anyone minting one
  *
@@ -36,9 +36,8 @@ import { CARD_MAX_CENTS, CARD_MIN_CENTS, VyrionClient } from '@changuito/mcp/pay
 
 import { modeKeepsRecords } from './app-mode.ts';
 import { bindCard, claimOrder, hasDatabase, openOrder, orderByMemo } from './db.ts';
-import { depositAsset } from './deposit.ts';
-import { findDeposit } from './deposit-watch.ts';
 import type { NetworkId } from './deployments.ts';
+import { activeLedger } from './ledger/index.ts';
 
 /** Vyrion's own docs put this at 30s; leave room and fail rather than hang. */
 const TIMEOUT_MS = 45_000;
@@ -121,7 +120,7 @@ export interface FundedDeposit {
   /**
    * The account that sent it, off the ledger. `POST /api/card` uses this when
    * the depositor record is missing — the one case that used to refuse a
-   * shopper who had already paid. Empty string means Horizon did not say.
+   * shopper who had already paid. Empty string means the ledger did not say.
    */
   from: string;
 }
@@ -129,19 +128,21 @@ export interface FundedDeposit {
 /**
  * The deposit that pays for this card, or a reason there is not one. Never
  * throws for "no deposit" — the caller has to tell those two apart to answer
- * honestly, and Horizon being unreachable is not a shopper who has not paid.
+ * honestly, and the ledger being unreachable is not a shopper who has not paid.
  */
 export async function fundingFor(
   net: NetworkId,
   memo: string,
   address: string,
 ): Promise<FundedDeposit | null> {
-  const hit = await findDeposit(net, {
+  // Through the port, same as the quote and the confirmation. The amount is
+  // whatever landed — minAmount is zero because the quote is not known here
+  // and refuseFunding bounds what a card can hold.
+  const books = activeLedger();
+  const hit = await books.findDeposit(net, {
     to: address,
-    asset: depositAsset(net),
+    asset: books.asset(net),
     memo,
-    // Any amount: the quote is not known here, and the card is funded with
-    // whatever landed. The bounds below are what keeps that sane.
     minAmount: '0',
   });
   if (!hit) return null;

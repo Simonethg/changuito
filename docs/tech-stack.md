@@ -60,8 +60,10 @@ taught us why.
 | **`soroban-sdk`** | 25.3.2 | pinned to match the local `stellar` CLI at 25.1.0 |
 | **generated bindings** | — | `packages/escrow-bindings`, `packages/usdc-bindings`, produced from the **deployed** wasm by `scripts/deploy.sh` |
 
-The money rail is a classic payment with a memo, confirmed by reading Horizon —
-no contract is on it. Full detail, and why, in [stellar.md](stellar.md).
+The money rail is a classic payment with a memo, confirmed through
+`activeLedger()` (Horizon adapter today) — no contract is on it. Quote and card
+live in `lib/pay/`; the port is `lib/ledger/`. Full detail, and why, in
+[stellar.md](stellar.md).
 
 ## Data
 

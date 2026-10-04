@@ -207,7 +207,7 @@ BROWSER                          /api/deposit                 STELLAR
    │   or, in preview, POST /api/deposit/demo signs with the demo wallet   │
    │
    │ poll every 4s:
-   ├─ GET /api/deposit?memo=… ────────►│ Horizon: payments for the account
+   ├─ GET /api/deposit?memo=… ────────►│ lib/pay → activeLedger(): payments
    │                                   │   destination · asset code AND issuer
    │                                   │   · amount in stroops · memo
    │                                   │ markPaid(memo)  — monotonic, best effort
@@ -223,8 +223,8 @@ BROWSER                          /api/deposit                 STELLAR
   not strand money on a dead código.
 - **GET holds no state and can be asked forever.** It proves the money arrived,
   not that it has not been spent — the once-only claim lives in flow 5.
-- **A database that is down costs a record, not a payment.** Horizon is the
-  authority in both halves.
+- **A database that is down costs a record, not a payment.** The ledger port is
+  the authority in both halves (Horizon today).
 
 ---
 

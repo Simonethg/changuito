@@ -6,8 +6,8 @@ functioning — with the single, explicitly marked exception of the escrow.
 
 | Technology | Where it is used |
 |---|---|
-| **Classic payments with a memo** | the money rail. One payment to an operator account, identified by a `código` in the memo. `lib/deposit.ts` quotes it, `lib/deposit-watch.ts` confirms it |
-| **Horizon** | the **only** confirmation source. There is no webhook, no callback and no reconciliation step — the payment either exists on the public ledger or it does not |
+| **Classic payments with a memo** | the money rail. One payment to an operator account, identified by a `código` in the memo. `lib/pay/deposit-rail.ts` quotes and confirms; `lib/deposit.ts` holds address and memo helpers |
+| **Horizon** | today's confirmation source behind `activeLedger()` (`lib/ledger/`). There is no webhook, no callback and no reconciliation step — the payment either exists on the public ledger or it does not |
 | **Classic assets and trustlines** | USDC on both networks: Circle's on mainnet, one this repo issued on testnet. `lib/trustline.ts` handles the `changeTrust` a shopper needs before they can hold it |
 | **[SEP-53](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0053.md) — signed messages** | identity. Every gate that can spend real money verifies a signature over a message naming the address, never an address the browser claims |
 | **[SEP-41](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0041.md) — Soroban token interface** | `contracts/mock_usdc` implements it; the escrow calls the standard `transfer` through `token::TokenClient` |
@@ -31,30 +31,31 @@ functioning — with the single, explicitly marked exception of the escrow.
 This is the part a judge should look at first, because it is the part that
 handles real money and it is deliberately the least clever thing in the repo.
 
-**Quoting** — `POST /api/deposit`. The route reads the shopper's cart from the
-store, server-side, and takes the *payable* total: items plus envío minus
-descuentos. It converts ARS to USD with a buffer, raises to the card minimum,
-refuses to quote above the card's ceiling, and returns an address, an amount and
-a memo. The client's own figure is used only when there is no store cart to read
-— the rehearsal fixture and the older payment modal — and is ignored entirely
-whenever the store can be asked.
+**Quoting** — `POST /api/deposit` → `lib/pay/deposit-rail.ts`. The use case
+reads the shopper's cart from the store, server-side, and takes the *payable*
+total: items plus envío minus descuentos. It converts ARS to USD with a buffer,
+raises to the card minimum, refuses to quote above the card's ceiling, and
+returns an address, an amount and a memo. The client's own figure is used only
+when there is no store cart to read — the rehearsal fixture and the older
+payment modal — and is ignored entirely whenever the store can be asked.
 
 **Paying.** One press. The shopper's Pollar wallet sends the payment, or they
 send it themselves from wherever their dollars are. It is always an explicit
 press: what the app does automatically is read the total, never take the money.
 
-**Confirming** — `GET /api/deposit`. `lib/deposit-watch.ts` reads Horizon's
-payments for the deposit account and matches on four things: the destination,
+**Confirming** — `GET /api/deposit` → the same use case, through
+`activeLedger()`. The Stellar adapter reads Horizon; the matcher
+(`lib/ledger/match.ts`) is pure and matches on four things: the destination,
 the asset (code *and* issuer — native has no issuer, which is exactly the
-mistake worth guarding), the amount in stroops, and the memo. The matcher is a
-pure function over payment records, split from the fetch, because matching is
-where money bugs live and the fetch is the part that needs a network and has
-nothing to get wrong.
+mistake worth guarding), the amount in stroops, and the memo. Matching is where
+money bugs live; the fetch is the part that needs a network and has nothing to
+get wrong. `lib/deposit-watch.ts` remains a facade for existing callers and
+tests.
 
-**Spending** — `POST /api/card`. The route re-reads the ledger for a payment
-carrying the código and derives the amount **from the payment that actually
-landed**. The deposit is then claimed exactly once, with a conditional
-`UPDATE … where card_id is null`.
+**Spending** — `POST /api/card` → `lib/pay/issue-card.ts`. Re-reads the ledger
+port for a payment carrying the código and derives the amount **from the payment
+that actually landed**. The deposit is then claimed exactly once, with a
+conditional `UPDATE … where card_id is null`.
 
 ### Why a payment and not the escrow
 

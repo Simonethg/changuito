@@ -48,7 +48,7 @@ deposit account.
 | 0–3 | Open [app.changuito.me](https://app.changuito.me) signed out and ask for a basket in Spanish — *"armá un desayuno por menos de $10.000"* | The agent is driving a real store. Prices and stock are Día's, live. This is **preview**: testnet, and we pay |
 | 3–6 | Press *Pagar* and watch the three-step rail: **entrá a tu cuenta → elegí el envío → pagá el importe** | The store's real checkout, in an iframe. No amount is quoted until the store has one |
 | 6–9 | Read [`apps/web/lib/order-check.ts`](../apps/web/lib/order-check.ts) and [`apps/web/lib/test/order-check.test.ts`](../apps/web/lib/test/order-check.test.ts) | How the app reads a cart it cannot see, cookie-free — and the test that pins that no profile data crosses back out |
-| 9–12 | Read [`apps/web/lib/deposit-watch.ts`](../apps/web/lib/deposit-watch.ts) | The Stellar half. Horizon is the only confirmation source; the matcher is pure and tested separately from the fetch, because that is where money bugs live |
+| 9–12 | Read [`apps/web/lib/ledger/`](../apps/web/lib/ledger/) and [`apps/web/lib/pay/`](../apps/web/lib/pay/) | The money half. Quote and card go through a ledger port; Horizon is today's adapter; the matcher is pure and tested separately from the fetch |
 | 12–15 | Run the commands in [§5](#5-verify-it-yourself) | The contract config, the ledger entries, and the test suites |
 
 ## 3. Claim → evidence
@@ -58,8 +58,8 @@ deposit account.
 | It is a real MCP server, spoken over the real protocol | [`apps/web/lib/mcp/boot.ts`](../apps/web/lib/mcp/boot.ts) — `InMemoryTransport.createLinkedPair()`, so `initialize` / `tools/list` / `tools/call` actually happen. Importing the functions would have been shorter |
 | The supermarket integration is not a mock | [`packages/mcp/`](../packages/mcp) — four Argentine VTEX chains, 520 tests, written before this app existed |
 | The model cannot put a wrong price on screen | [`apps/web/lib/agent/render-tools.ts`](../apps/web/lib/agent/render-tools.ts) — render tools take **identifiers only**. A hallucinated price has no argument to travel in |
-| The shopper is charged the store's exact total, envío included | [`apps/web/app/api/deposit/route.ts`](../apps/web/app/api/deposit/route.ts) — the route ignores the client's figure whenever it can read the store's. Commit `16ee1a8` is the fix and says why |
-| Confirmation is trustless | [`apps/web/lib/deposit-watch.ts`](../apps/web/lib/deposit-watch.ts) — Horizon only. No webhook, no secret, no reconciliation. You can check any deposit yourself |
+| The shopper is charged the store's exact total, envío included | [`apps/web/lib/pay/deposit-rail.ts`](../apps/web/lib/pay/deposit-rail.ts) — ignores the client's figure whenever it can read the store's. Commit `16ee1a8` is the fix and says why |
+| Confirmation is trustless | [`apps/web/lib/ledger/`](../apps/web/lib/ledger/) — public ledger read via the port (Horizon today). No webhook, no secret, no reconciliation. You can check any deposit yourself |
 | Identity is proven, not claimed | [`apps/web/lib/wallet-proof-verify.ts`](../apps/web/lib/wallet-proof-verify.ts) (SEP-53) and the four gates that use it: `deposit-gate`, `network-access`, `faucet-auth`, `settle-gate` |
 | A deposit can buy exactly one card | [`apps/web/lib/card.ts`](../apps/web/lib/card.ts) — the claim is a conditional `UPDATE … where card_id is null`, not a read-then-write, because two tabs pressing the button together is the ordinary case |
 | Card numbers are never written down | `card.ts` header, and `e2e/app-frame-checkout.spec.ts`, which asserts no PAN or CVV reaches `localStorage` or `sessionStorage` and runs with traces off |
